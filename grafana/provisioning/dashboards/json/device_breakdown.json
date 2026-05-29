@@ -1,0 +1,94 @@
+{
+  "uid": "device-breakdown",
+  "title": "Device Breakdown",
+  "tags": ["url-shortener"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "user_id",
+        "label": "User",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": "SELECT DISTINCT user_id FROM shortener.clicks ORDER BY user_id",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": "%",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "multi": false,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "piechart",
+      "title": "Device Breakdown",
+      "description": "Desktop vs mobile vs bot traffic distribution",
+      "gridPos": { "h": 14, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT device, count() AS clicks FROM shortener.clicks WHERE $__timeFilter(timestamp) AND user_id LIKE '$user_id' GROUP BY device ORDER BY clicks DESC",
+          "editorMode": "code",
+          "format": 0
+        }
+      ],
+      "transformations": [
+        { "id": "rowsToFields", "options": { "nameField": "device", "valueField": "clicks" } }
+      ],
+      "options": {
+        "pieType": "pie",
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "desktop" }, "properties": [{ "id": "color", "value": { "fixedColor": "#3B82F6", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "mobile"  }, "properties": [{ "id": "color", "value": { "fixedColor": "#10B981", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "bot"     }, "properties": [{ "id": "color", "value": { "fixedColor": "#F97316", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "unknown" }, "properties": [{ "id": "color", "value": { "fixedColor": "#94A3B8", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Device Trend Over Time",
+      "description": "Click volume per device type over time",
+      "gridPos": { "h": 14, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT $__timeInterval(timestamp) AS time, countIf(device = 'desktop') AS desktop, countIf(device = 'mobile') AS mobile, countIf(device = 'bot') AS bot FROM shortener.clicks WHERE $__timeFilter(timestamp) AND user_id LIKE '$user_id' GROUP BY time ORDER BY time ASC",
+          "editorMode": "code",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "drawStyle": "line", "stacking": { "mode": "none" } },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "desktop" }, "properties": [{ "id": "color", "value": { "fixedColor": "#3B82F6", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "mobile"  }, "properties": [{ "id": "color", "value": { "fixedColor": "#10B981", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "bot"     }, "properties": [{ "id": "color", "value": { "fixedColor": "#F97316", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "unknown" }, "properties": [{ "id": "color", "value": { "fixedColor": "#94A3B8", "mode": "fixed" } }] }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ]
+}

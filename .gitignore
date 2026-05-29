@@ -1,0 +1,37 @@
+# Env files with actual credentials — keep .env.example files
+.env
+backend/shortener/.env
+clickhouse-consumer/.env
+python-agent/.env
+
+# IDE
+.idea/
+.vscode/
+
+# Go binaries
+*.exe
+*.out
+backend/shortener/shortener
+
+# Python / uv (agent) — venv and test/coverage artifacts; pyproject.toml + uv.lock are tracked
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# MaxMind GeoLite2 DB — licensed, must not be redistributed (added out-of-band)
+backend/shortener/data/*.mmdb
+
+# OS
+.DS_Store
+Thumbs.db
+
+.ssh/*
+
+frontend/node_modules/*
+
+# Load-test / showcase output — results, charts and reports are generated locally
+loadtest/results/

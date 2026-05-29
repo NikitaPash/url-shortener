@@ -1,0 +1,12 @@
+.env
+.env.example
+.git
+.gitignore
+Dockerfile
+.dockerignore
+Makefile
+.golangci.yml
+*.exe
+*.out
+shortener
+**/*_test.go
