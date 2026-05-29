@@ -1,8 +1,5 @@
-# Env files with actual credentials — keep .env.example files
+# Env file with actual credentials — keep .env.example
 .env
-backend/shortener/.env
-clickhouse-consumer/.env
-python-agent/.env
 
 # IDE
 .idea/

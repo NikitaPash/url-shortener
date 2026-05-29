@@ -1,0 +1,43 @@
+# Production overlay — adds TLS (nginx :443 + automatic Let's Encrypt certs via
+# certbot) on top of the base stack. Apply with BOTH files:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# The base docker-compose.yml stays plain HTTP so local `docker compose up` keeps
+# working without certificates. In production the server `.env` sets
+# NGINX_CONF=./nginx/nginx.prod.conf (HTTPS config) and DOMAIN=<reserved-ip>.nip.io.
+#
+# First-time certificate issuance is a one-off: run ./init-letsencrypt.sh once.
+# After that the certbot service below renews automatically and nginx reloads
+# every 6h to pick renewals up — no redeploy needed for cert rotation.
+services:
+  nginx:
+    ports:
+      - "443:443"
+    volumes:
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    # Reload every 6h so a renewed certificate is picked up without a redeploy.
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'
+
+  grafana:
+    environment:
+      # Absolute external URL so Grafana emits https:// links behind the TLS proxy.
+      GF_SERVER_ROOT_URL: "https://${DOMAIN}/grafana/"
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: shortener-certbot
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Attempt renewal twice a day; certbot only acts when a cert is near expiry.
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done;'
+    restart: unless-stopped
+
+volumes:
+  certbot_conf:
+  certbot_www:

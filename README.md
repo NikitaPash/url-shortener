@@ -222,8 +222,6 @@ All deployment configuration lives in the root `.env` (copied from `.env.example
 | `BASE_URL` | ✅ | `http://localhost` | Public root URL used to build the short links returned to clients. For a deployed instance use `https://yourdomain.com` or `http://<server-ip>`. |
 | `GRAFANA_PASSWORD` | ✅ | `admin` | Password for the Grafana `admin` login. |
 
-> Each Go/Python service also ships a `*.env.example` in its own directory — those are only for running that one service **outside** Docker during development (see [§12](#12-development--testing)). For the normal Docker workflow you only touch the root `.env`.
-
 **Tunable defaults baked into the Go API** (override via the service environment if you ever need to): rate limits — `RATE_LIMIT_AUTH=10`, `RATE_LIMIT_REDIRECT=100`, `RATE_LIMIT_API=30` (requests/min/IP); `JWT_EXPIRY=24h`; `DB_MAX_CONNS=10`. The AI endpoint is additionally throttled by nginx to **20 requests/min/IP**.
 
 ---
@@ -356,9 +354,6 @@ npm install
 npm run dev        # Vite dev server
 npm test           # Vitest unit/component tests
 ```
-
-### Per-service env files
-Each Go/Python service has its own `.env.example` for running it standalone (pointing at `localhost` infra rather than Docker DNS names). Copy to `.env` in that service's directory when developing outside Compose.
 
 ### CI
 GitHub Actions workflows live in `.github/workflows/` (`code-check.yml` for lint/test, `ci-cd.yml` for the pipeline). Go linting is configured via `.golangci.yml` in each Go module.
