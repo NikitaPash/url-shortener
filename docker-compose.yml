@@ -88,6 +88,10 @@ services:
     image: clickhouse/clickhouse-server:26.5.1-alpine
     container_name: shortener-clickhouse
     environment:
+      # Sets the `default` user's password (consumed by default-user.xml via
+      # <password from_env="...">). Non-"magic" name so the image's built-in
+      # CLICKHOUSE_PASSWORD handling doesn't conflict with the mounted config.
+      CLICKHOUSE_DEFAULT_PASSWORD: ${CLICKHOUSE_PASSWORD}
       # Consumed by analyst-user.xml via <password from_env="...">.
       CLICKHOUSE_ANALYST_PASSWORD: ${CLICKHOUSE_ANALYST_PASSWORD}
     volumes:
@@ -278,6 +282,8 @@ services:
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Interpolated into the ClickHouse datasource provisioning (connects as `default`).
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana

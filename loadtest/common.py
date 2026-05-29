@@ -46,6 +46,7 @@ GATEWAY = os.environ.get("GATEWAY", "http://localhost")  # nginx (AI agent, SPA)
 APP_URL = f"{GATEWAY}/app/"
 PROM_URL = os.environ.get("PROM_URL", "http://localhost:9090")
 CLICKHOUSE_CONTAINER = os.environ.get("CLICKHOUSE_CONTAINER", "shortener-clickhouse")
+CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")  # `default` user pw for docker-exec queries
 
 # ---------------------------------------------------------------------------
 # Traffic shape — shared so the benchmark and the demo populate the same
@@ -324,10 +325,13 @@ class RateGate:
 # ---------------------------------------------------------------------------
 def clickhouse(query: str) -> str:
     """Run a query inside the ClickHouse container; never raises."""
+    cmd = ["docker", "exec", CLICKHOUSE_CONTAINER, "clickhouse-client"]
+    if CLICKHOUSE_PASSWORD:
+        cmd += ["--password", CLICKHOUSE_PASSWORD]
+    cmd += ["-q", query]
     try:
         out = subprocess.run(
-            ["docker", "exec", CLICKHOUSE_CONTAINER, "clickhouse-client", "-q", query],
-            capture_output=True, text=True, timeout=30, check=False,
+            cmd, capture_output=True, text=True, timeout=30, check=False,
         )
         return (out.stdout or out.stderr).strip()
     except Exception as e:  # noqa: BLE001 - diagnostics only

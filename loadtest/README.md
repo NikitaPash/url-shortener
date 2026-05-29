@@ -120,4 +120,5 @@ Both scripts honour these (CLI flags override where present):
 | `GATEWAY` | `http://localhost` | nginx — used for the AI agent and UI links |
 | `PROM_URL` | `http://localhost:9090` | Prometheus query API |
 | `CLICKHOUSE_CONTAINER` | `shortener-clickhouse` | Container name for `docker exec` queries |
+| `CLICKHOUSE_PASSWORD` | _(empty)_ | Password for the ClickHouse `default` user — set it to match your `.env` so the `docker exec` queries authenticate |
 | `NO_COLOR` | _(unset)_ | Set to disable ANSI colour |
