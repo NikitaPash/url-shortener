@@ -16,7 +16,8 @@ cd "$(dirname "$0")"
 [ -f .env ] || { echo "ERROR: .env not found — copy .env.example to .env and fill it in." >&2; exit 1; }
 
 # Pull only the keys we need (avoids executing arbitrary .env values via sourcing).
-read_env() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2- | tr -d '"'; }
+# `|| true` so a missing key doesn't abort the script under `set -e -o pipefail`.
+read_env() { { grep -E "^$1=" .env || true; } | tail -n1 | cut -d= -f2- | tr -d '"'; }
 DOMAIN="$(read_env DOMAIN)"
 EMAIL="$(read_env LETSENCRYPT_EMAIL)"
 STAGING="$(read_env STAGING)"

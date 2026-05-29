@@ -13,5 +13,7 @@ datasources:
       defaultDatabase: shortener
       username: default
     secureJsonData:
-      password: ""
+      # Interpolated from the grafana container's env (set in docker-compose).
+      # Empty CLICKHOUSE_PASSWORD → empty password, so local dev still works.
+      password: ${CLICKHOUSE_PASSWORD}
     editable: true

@@ -26,7 +26,7 @@ DEST_FILE="${DEST_DIR}/${EDITION}.mmdb"
 # License key precedence: positional arg > environment > .env file.
 KEY="${1:-${MAXMIND_LICENSE_KEY:-}}"
 if [ -z "$KEY" ] && [ -f .env ]; then
-  KEY="$(grep -E '^MAXMIND_LICENSE_KEY=' .env | tail -n1 | cut -d= -f2- | tr -d '"')"
+  KEY="$( { grep -E '^MAXMIND_LICENSE_KEY=' .env || true; } | tail -n1 | cut -d= -f2- | tr -d '"')"
 fi
 [ -n "$KEY" ] || {
   echo "ERROR: no MaxMind license key. Pass it as an argument, set MAXMIND_LICENSE_KEY," >&2
