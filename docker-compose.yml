@@ -88,16 +88,17 @@ services:
     image: clickhouse/clickhouse-server:26.5.1-alpine
     container_name: shortener-clickhouse
     environment:
-      # Sets the `default` user's password (consumed by default-user.xml via
-      # <password from_env="...">). Non-"magic" name so the image's built-in
-      # CLICKHOUSE_PASSWORD handling doesn't conflict with the mounted config.
-      CLICKHOUSE_DEFAULT_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      # Provision the `default` user via the image's native handling. The first-boot
+      # entrypoint runs /docker-entrypoint-initdb.d/init.sql by connecting as this
+      # user with CLICKHOUSE_PASSWORD, so the two MUST match — otherwise init fails
+      # with AUTHENTICATION_FAILED and the `shortener` database is never created.
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       # Consumed by analyst-user.xml via <password from_env="...">.
       CLICKHOUSE_ANALYST_PASSWORD: ${CLICKHOUSE_ANALYST_PASSWORD}
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./clickhouse/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
       - ./clickhouse/analyst-user.xml:/etc/clickhouse-server/users.d/analyst-user.xml:ro
     ports:
       - "127.0.0.1:8123:8123"
