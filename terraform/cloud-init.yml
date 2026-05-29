@@ -25,8 +25,16 @@ runcmd:
   - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
-  - ufw allow 16686/tcp
   - ufw --force enable
+
+  # 4 GB swap so on-server image builds (the Vite/Node frontend especially) don't
+  # OOM on the 8 GB Droplet, and the running stack has headroom under load.
+  - fallocate -l 4G /swapfile
+  - chmod 600 /swapfile
+  - mkswap /swapfile
+  - swapon /swapfile
+  - sh -c 'echo "/swapfile none swap sw 0 0" >> /etc/fstab'
+  - sysctl -w vm.swappiness=10
 
   # Create app directory.
   - mkdir -p /opt/shortener

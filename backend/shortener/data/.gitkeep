@@ -1,0 +1,4 @@
+# Keeps backend/shortener/data/ in git so the Dockerfile's `COPY data/ ./data/`
+# works on a fresh clone. The only real contents — GeoLite2-Country.mmdb — are
+# git-ignored (licensed, added out-of-band), so without this file the directory
+# would not exist after `git clone` and the go-api image build would fail.

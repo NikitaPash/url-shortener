@@ -39,12 +39,9 @@ resource "digitalocean_firewall" "main" {
     source_addresses = ["0.0.0.0/0", "::/0"]
   }
 
-  # Jaeger UI — restrict source_addresses to your own CIDR in production.
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "16686"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
+  # Note: observability UIs (Jaeger, Grafana, Prometheus) are reached through
+  # nginx sub-paths (/jaeger/, /grafana/, /prometheus/) over 80/443 — their direct
+  # ports are intentionally NOT exposed at the edge.
 
   outbound_rule {
     protocol              = "tcp"

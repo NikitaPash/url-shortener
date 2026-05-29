@@ -1,0 +1,82 @@
+name: CI/CD
+
+# Deploy-only pipeline. Testing/linting lives in "Code Check"; this workflow runs
+# AFTER Code Check succeeds on main (so we never deploy a red build), or on a
+# manual dispatch. It SSHes into the Droplet, pulls main, rebuilds and restarts.
+#
+# Required repo secrets: SERVER_IP, SSH_PRIVATE_KEY  (see deployment.md §9)
+
+on:
+  workflow_run:
+    workflows: ["Code Check"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to DigitalOcean Droplet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Manual runs always proceed; automatic runs only when Code Check passed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 20m
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            cd /opt/shortener
+
+            # Base + production overlay (overlay adds TLS: nginx :443 + certbot).
+            # The first-ever deploy must be bootstrapped manually once with
+            # ./init-letsencrypt.sh (issues the initial certificate); CI handles
+            # every deploy after that — the cert lives in a persistent volume.
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+            echo "==> Pulling latest main"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "==> Building and starting containers"
+            $COMPOSE pull --quiet --ignore-buildable || true
+            $COMPOSE up -d --build --remove-orphans
+
+            echo "==> Waiting for containers to become healthy"
+            deadline=$((SECONDS + 120))
+            while true; do
+              unhealthy=$($COMPOSE ps --format json \
+                | jq -rs '.[] | select(.Health == "unhealthy") | .Name' || true)
+              starting=$($COMPOSE ps --format json \
+                | jq -rs '.[] | select(.Health == "starting") | .Name' || true)
+
+              if [ -z "$unhealthy" ] && [ -z "$starting" ]; then
+                echo "All containers healthy."
+                break
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "Containers not healthy within timeout."
+                [ -n "$unhealthy" ] && echo "UNHEALTHY: $unhealthy" && $COMPOSE logs $unhealthy --tail=40
+                [ -n "$starting" ]  && echo "STILL STARTING: $starting"
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "==> Reclaiming disk from old image layers"
+            docker image prune -f
+
+            echo "==> Deployment successful"
