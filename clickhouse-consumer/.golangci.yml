@@ -1,0 +1,78 @@
+version: "2"
+
+run:
+  concurrency: 4
+  allow-parallel-runners: true
+
+linters:
+  default: all
+  # Disabled: high-noise or stylistic linters that fight idiomatic code more than
+  # they catch real bugs. The remaining set still covers correctness, security
+  # (gosec), bug-prone patterns (govet, staticcheck, gocritic) and dead code.
+  disable:
+    - mnd             # magic numbers — too many false positives on ports/sizes/timeouts
+    - exhaustruct     # demands every struct field be set explicitly
+    - depguard        # import allow-list — needs per-project config to be useful
+    - varnamelen      # flags idiomatic short names (r, w, id, tx)
+    - wsl             # whitespace/cuddle rules — pure style noise
+    - wsl_v5          # same, v5
+    - noinlineerr     # forbids the idiomatic `if err := f(); err != nil`
+    - nlreturn        # blank line before return
+    - gochecknoglobals # we use package-level singletons (tracer, validator)
+    - ireturn         # "return concrete types" — conflicts with otel/noop interfaces
+    - tagliatelle     # JSON tag case — we intentionally use snake_case
+    - wrapcheck       # demands wrapping every external error
+    - err113          # disallows dynamic errors.New for sentinel-style errors
+    - godox           # flags TODO/FIXME comments
+    - dupl            # flags structurally similar handler boilerplate
+    - paralleltest    # demands t.Parallel everywhere
+    - nonamedreturns
+    - funlen          # wiring functions (run) are legitimately long
+    - gocyclo         # complexity of sequential error-checking is unavoidable
+    - cyclop
+    - gocognit
+    - godot
+    - contextcheck    # false positives on graceful-shutdown / detached contexts
+    - modernize       # opinionated rewrites (max(), WaitGroup.Go) — not bugs
+    - funcorder       # method ordering is purely stylistic
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+    tagalign:
+      align: true
+      sort: true
+      order:
+        - json
+        - yaml
+        - split_words
+        - required
+        - default
+
+  exclusions:
+    rules:
+      # Test files: relax checks that add noise without value in tests.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - noctx
+      # Structured slog fields are JSON-escaped, so log-injection is not possible.
+      - linters:
+          - gosec
+        text: "G706"

@@ -1,0 +1,10 @@
+.env
+.env.example
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.exe
+*.out
+consumer
+**/*_test.go

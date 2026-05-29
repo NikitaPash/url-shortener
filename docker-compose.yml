@@ -1,0 +1,323 @@
+services:
+  # Infrastructure
+  postgres:
+    image: postgres:17-alpine
+    container_name: shortener-postgres
+    environment:
+      POSTGRES_DB: shortener
+      POSTGRES_USER: shortener
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortener -d shortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    container_name: shortener-redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.11
+    container_name: shortener-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.11
+    container_name: shortener-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.11
+    container_name: shortener-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+    volumes:
+      - ./kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.5.1-alpine
+    container_name: shortener-clickhouse
+    environment:
+      # Consumed by analyst-user.xml via <password from_env="...">.
+      CLICKHOUSE_ANALYST_PASSWORD: ${CLICKHOUSE_ANALYST_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./clickhouse/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml:ro
+      - ./clickhouse/analyst-user.xml:/etc/clickhouse-server/users.d/analyst-user.xml:ro
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok."]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  #  Observability backends
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: shortener-jaeger
+    command: ["--query.base-path=/jaeger"]
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    volumes:
+      - jaeger_data:/tmp
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: shortener-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      # Served behind nginx at /prometheus/. external-url makes the UI emit
+      # prefixed asset/route links; route-prefix=/ keeps it served at root so
+      # nginx (which strips the prefix), the healthcheck, Grafana's datasource,
+      # and scraping all keep working unchanged.
+      - "--web.external-url=${BASE_URL}/prometheus/"
+      - "--web.route-prefix=/"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Application services
+  go-api:
+    build:
+      context: ./backend/shortener
+      dockerfile: Dockerfile
+    container_name: shortener-go-api
+    # Bound to localhost only: external clients must go through nginx (:80), which
+    # sets a trusted X-Real-IP. Exposing :8080 publicly would let clients reach the
+    # API directly and spoof that header to bypass rate limiting and the IP blacklist.
+    # nginx still reaches go-api over the internal docker network (go-api:8080).
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9091:9091"
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://shortener:${POSTGRES_PASSWORD}@postgres:5432/shortener?sslmode=disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      GEOIP_DB_PATH: data/GeoLite2-Country.mmdb
+      JWT_SECRET: ${JWT_SECRET}
+      BASE_URL: ${BASE_URL}
+      # Seeded analytics admin — the only account allowed to use the AI agent.
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      JAEGER_ENDPOINT: jaeger:4318
+      METRICS_PORT: 9091
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_ANALYST_USER: analyst
+      CLICKHOUSE_ANALYST_PASSWORD: ${CLICKHOUSE_ANALYST_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  clickhouse-consumer:
+    build:
+      context: ./clickhouse-consumer
+      dockerfile: Dockerfile
+    container_name: shortener-clickhouse-consumer
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC}
+      KAFKA_GROUP_ID: clickhouse-writers
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      BATCH_SIZE: 1000
+      FLUSH_INTERVAL: 5s
+      JAEGER_ENDPOINT: jaeger:4318
+      METRICS_PORT: 9094
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python-agent:
+    build:
+      context: ./python-agent
+      dockerfile: Dockerfile
+    container_name: shortener-python-agent
+    # Reached only through nginx (/api/query); bound to localhost so the per-IP
+    # rate limit in nginx can't be bypassed by hitting the agent directly.
+    ports:
+      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:9093:9093"
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      # Read-only ClickHouse user — the agent must never write analytics data.
+      CLICKHOUSE_USER: analyst
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ANALYST_PASSWORD}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+      JAEGER_ENDPOINT: jaeger:4318
+      JWT_SECRET: ${JWT_SECRET}
+      # Gemini for the AI analytics agent. Sourced from the single root .env so
+      # all deployment secrets live in one file (previously hidden in a separate
+      # gitignored python-agent/.env, which broke fresh deploys).
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health | grep -q ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Frontend / reverse proxy
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shortener-frontend
+    restart: unless-stopped
+    depends_on:
+      go-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:13.1.0-25893932881
+    container_name: shortener-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.31.1-alpine
+    container_name: shortener-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - go-api
+      - frontend
+      - python-agent
+      - grafana
+      - jaeger
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/nginx-health | grep -q ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  grafana_data:
+  jaeger_data:
+  prometheus_data:
