@@ -1,0 +1,63 @@
+{
+  "uid": "click-volume",
+  "title": "Click Volume Over Time",
+  "tags": ["url-shortener"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "user_id",
+        "label": "User",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "query": "SELECT DISTINCT user_id FROM shortener.clicks ORDER BY user_id",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": "%",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "multi": false,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Click Volume Over Time",
+      "description": "Total clicks per time bucket across all links",
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT $__timeInterval(timestamp) AS time, count() AS clicks FROM shortener.clicks WHERE $__timeFilter(timestamp) AND user_id LIKE '$user_id' GROUP BY time ORDER BY time ASC",
+          "editorMode": "code",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "spanNulls": false,
+            "drawStyle": "line"
+          },
+          "color": { "mode": "palette-classic" },
+          "displayName": "Clicks"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ]
+}

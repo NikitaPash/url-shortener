@@ -1,0 +1,24 @@
+<clickhouse>
+    <profiles>
+        <readonly_analyst>
+            <!-- readonly=2: read-only queries only (no INSERT/ALTER/DROP/…), but
+                 the client may still set session settings such as result caps and
+                 additional_table_filters. This is what the python-agent connects as. -->
+            <readonly>2</readonly>
+            <max_result_rows>1000</max_result_rows>
+            <max_execution_time>10</max_execution_time>
+            <result_overflow_mode>break</result_overflow_mode>
+        </readonly_analyst>
+    </profiles>
+
+    <users>
+        <analyst>
+            <password from_env="CLICKHOUSE_ANALYST_PASSWORD"/>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>readonly_analyst</profile>
+            <quota>default</quota>
+        </analyst>
+    </users>
+</clickhouse>

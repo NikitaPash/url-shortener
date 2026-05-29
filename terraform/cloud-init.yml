@@ -1,0 +1,35 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - curl
+  - ufw
+  - fail2ban
+
+runcmd:
+  # Enable and start Docker.
+  - systemctl enable docker
+  - systemctl start docker
+
+  # Allow docker commands without sudo.
+  - usermod -aG docker root
+
+  # Basic hardening.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 16686/tcp
+  - ufw --force enable
+
+  # Create app directory.
+  - mkdir -p /opt/shortener
+
+  # Signal that cloud-init is done.
+  - touch /var/log/cloud-init-done
