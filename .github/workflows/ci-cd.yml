@@ -43,7 +43,7 @@ jobs:
 
             # Base + production overlay (overlay adds TLS: nginx :443 + certbot).
             # The first-ever deploy must be bootstrapped manually once with
-            # ./init-letsencrypt.sh (issues the initial certificate); CI handles
+            # ./scripts/init-letsencrypt.sh (issues the initial certificate); CI handles
             # every deploy after that — the cert lives in a persistent volume.
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 

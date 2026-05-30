@@ -8,16 +8,16 @@
 # so this step is optional — but the Geo dashboard/analytics need it.
 #
 # Run on the Droplet from /opt/shortener BEFORE building the image:
-#   - first deploy:  run this, THEN `bash init-letsencrypt.sh`
+#   - first deploy:  run this, THEN `bash scripts/init-letsencrypt.sh`
 #   - later refresh: run this, THEN rebuild go-api (see the hint printed at the end)
 #
 # Provide a free MaxMind license key (https://www.maxmind.com/en/geolite2/signup →
 # Account → "Manage License Keys") one of three ways:
-#   MAXMIND_LICENSE_KEY=xxxxx bash fetch-geoip.sh
-#   bash fetch-geoip.sh xxxxx
-#   put MAXMIND_LICENSE_KEY=xxxxx in .env, then: bash fetch-geoip.sh
+#   MAXMIND_LICENSE_KEY=xxxxx bash scripts/fetch-geoip.sh
+#   bash scripts/fetch-geoip.sh xxxxx
+#   put MAXMIND_LICENSE_KEY=xxxxx in .env, then: bash scripts/fetch-geoip.sh
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 EDITION="GeoLite2-Country"
 DEST_DIR="backend/shortener/data"
