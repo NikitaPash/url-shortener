@@ -9,9 +9,9 @@
 # renews automatically and nginx reloads every 6h to pick renewals up.
 #
 # Run once, on the Droplet, from /opt/shortener, after .env is filled in:
-#   bash init-letsencrypt.sh
+#   bash scripts/init-letsencrypt.sh
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 [ -f .env ] || { echo "ERROR: .env not found — copy .env.example to .env and fill it in." >&2; exit 1; }
 
