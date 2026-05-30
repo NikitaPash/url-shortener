@@ -7,7 +7,7 @@
 # working without certificates. In production the server `.env` sets
 # NGINX_CONF=./nginx/nginx.prod.conf (HTTPS config) and DOMAIN=<reserved-ip>.nip.io.
 #
-# First-time certificate issuance is a one-off: run ./init-letsencrypt.sh once.
+# First-time certificate issuance is a one-off: run ./scripts/init-letsencrypt.sh once.
 # After that the certbot service below renews automatically and nginx reloads
 # every 6h to pick renewals up — no redeploy needed for cert rotation.
 services:
