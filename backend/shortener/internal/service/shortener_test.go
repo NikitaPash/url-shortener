@@ -21,7 +21,21 @@ func TestShortenAndResolve(t *testing.T) {
 	// nil cache: cache misses degrade gracefully.
 	shortenerSvc := service.NewShortenerService(linkRepo, nil, nil)
 
+	// links.user_id is a NOT NULL FK to users(id), so seed an owner row first;
+	// otherwise Shorten fails with a foreign-key violation (SQLSTATE 23503).
 	userID := "00000000-0000-0000-0000-000000000001"
+	if _, err := testPool.Exec(ctx,
+		`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'x')
+		 ON CONFLICT (id) DO NOTHING`,
+		userID, fmt.Sprintf("shorten-owner-%d@example.com", time.Now().UnixNano()),
+	); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	t.Cleanup(func() {
+		// ON DELETE CASCADE removes the owned link too.
+		_, _ = testPool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
 	origURL := fmt.Sprintf("https://example.com/%d", time.Now().UnixNano())
 
 	link, err := shortenerSvc.Shorten(ctx, userID, origURL, nil, "")

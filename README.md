@@ -1,173 +1,163 @@
-# URL Shortener — Distributed Analytics Platform
+# URL Shortener — розподілена платформа аналітики
 
-A production-style URL shortener built as a learning project. It is **not** just a "paste a link, get a short link" toy — it is a full distributed system: a Go REST API, an event pipeline (Kafka → ClickHouse), an AI analytics agent that answers questions about your traffic in plain English (Google Gemini, natural language → SQL), a React dashboard, and a complete observability stack (Prometheus, Grafana, Jaeger). The whole thing runs with **one command** via Docker Compose.
+Скорочувач посилань у production-стилі, створений як навчальний проєкт. Це **не** іграшка «вставив довге посилання — отримав коротке», а повноцінна розподілена система: REST API мовою Go, конвеєр подій (Kafka → ClickHouse), AI-агент аналітики, що відповідає на запитання про ваш трафік звичайною мовою (Google Gemini, природна мова → SQL), React-дашборд і повний стек спостережуваності (Prometheus, Grafana, Jaeger). Уся система запускається **однією командою** через Docker Compose.
 
-> **TL;DR — run it locally**
+> **Коротко — запустити локально**
 > ```bash
-> cp .env.example .env          # then edit .env (see "Configuration")
-> docker compose up -d --build  # first build ~5–10 min
+> cp .env.example .env          # для локалу дефолтні значення працюють як є
+> docker compose up -d --build  # перша збірка ~5–10 хв
 > ```
-> Open **http://localhost/app/** → register an account → shorten a link.
+> Відкрийте **http://localhost/app/** → зареєструйте акаунт → скоротіть посилання.
 
 ---
 
-## Table of contents
+## Зміст
 
-1. [What it does](#1-what-it-does)
-2. [Architecture](#2-architecture)
-3. [Tech stack](#3-tech-stack)
-4. [Prerequisites — what you need](#4-prerequisites--what-you-need)
-5. [Quick start (local)](#5-quick-start-local)
-6. [Configuration (`.env`)](#6-configuration-env)
-7. [Where everything lives (URLs & ports)](#7-where-everything-lives-urls--ports)
-8. [Using the app](#8-using-the-app)
-9. [API reference](#9-api-reference)
-10. [The AI analytics agent](#10-the-ai-analytics-agent)
-11. [Observability](#11-observability)
-12. [Development & testing](#12-development--testing)
-13. [Project structure](#13-project-structure)
-14. [Deploying to a server](#14-deploying-to-a-server)
-15. [Troubleshooting](#15-troubleshooting)
-16. [License](#16-license)
-
----
-
-## 1. What it does
-
-- **Shorten URLs** behind your own domain/host, with optional **custom aliases**.
-- **Accounts & auth** — register / login with JWT; logout is honored server-side via a Redis denylist.
-- **Fast redirects** — short codes are cached in Redis; redirects work even if downstream analytics is degraded.
-- **Click analytics** — every redirect emits a click event (timestamp, country, device, referrer, bot flag, …) onto Kafka, which a consumer batches into ClickHouse for fast aggregate queries.
-- **AI analytics** — ask questions like *"how many clicks did I get from Germany last week?"* in the UI; a Gemini-backed agent turns it into validated, read-only, user-scoped SQL and runs it against ClickHouse.
-- **Per-link analytics dashboard** in the UI, plus operator dashboards in Grafana (click volume, geo distribution, device breakdown, bot traffic, top referrers, link leaderboard, system health).
-- **Observability built in** — Prometheus metrics, Grafana dashboards, and end-to-end distributed tracing in Jaeger across the Go API, the consumer, and the Python agent.
-- **Defense in depth** — per-IP rate limiting (auth / redirect / API / AI), a read-only DB user for the AI agent, SQL validation, and internal services bound to localhost so all public traffic must pass through nginx.
+1. [Що це вміє](#1-що-це-вміє)
+2. [Архітектура](#2-архітектура)
+3. [Технологічний стек](#3-технологічний-стек)
+4. [Передумови — що потрібно](#4-передумови--що-потрібно)
+5. [Швидкий старт (локально)](#5-швидкий-старт-локально)
+6. [Конфігурація (`.env`)](#6-конфігурація-env)
+7. [Де що живе (URL та порти)](#7-де-що-живе-url-та-порти)
+8. [Користування застосунком](#8-користування-застосунком)
+9. [Довідник API](#9-довідник-api)
+10. [AI-агент аналітики](#10-ai-агент-аналітики)
+11. [Спостережуваність](#11-спостережуваність)
+12. [Розробка та тестування](#12-розробка-та-тестування)
+13. [Структура проєкту](#13-структура-проєкту)
+14. [Розгортання на сервері](#14-розгортання-на-сервері)
+15. [Усунення несправностей](#15-усунення-несправностей)
+16. [Ліцензія](#16-ліцензія)
 
 ---
 
-## 2. Architecture
+## 1. Що це вміє
 
-Everything is fronted by a single nginx reverse proxy on port **80**. Application services (Go API, Python agent) are bound to `127.0.0.1` only — the outside world reaches them exclusively through nginx, which sets a trusted `X-Real-IP` so rate limiting and the IP blacklist can't be bypassed.
+- **Скорочення URL** під вашим власним доменом/хостом, з опційними **користувацькими аліасами**.
+- **Акаунти та автентифікація** — реєстрація / вхід за JWT; вихід підтверджується на боці сервера через denylist у Redis.
+- **Швидкі перенаправлення** — короткі коди кешуються в Redis; перенаправлення працюють навіть якщо аналітика нижче по конвеєру деградувала.
+- **Аналітика кліків** — кожне перенаправлення породжує подію кліку (мітка часу, країна, пристрій, реферер, прапорець бота тощо) в Kafka, а консюмер пакетно записує її в ClickHouse для швидких агрегатних запитів.
+- **AI-аналітика** — ставте запитання на кшталт *«скільки кліків з Німеччини я отримав минулого тижня?»* прямо в інтерфейсі; агент на базі Gemini перетворює їх на перевірений, лише-для-читання, прив'язаний до користувача SQL і виконує його проти ClickHouse.
+- **Дашборд аналітики по кожному посиланню** в інтерфейсі, плюс операторські дашборди в Grafana (обсяг кліків, географія, розподіл пристроїв, трафік ботів, топ реферерів, рейтинг посилань, стан системи).
+- **Вбудована спостережуваність** — метрики Prometheus, дашборди Grafana та наскрізне розподілене трасування в Jaeger через Go API, консюмер і Python-агента.
+- **Глибока оборона (defense in depth)** — рейт-лімітинг по IP (авторизація / перенаправлення / API / AI), окремий read-only користувач БД для AI-агента, валідація SQL і внутрішні сервіси, прив'язані до localhost, тож увесь публічний трафік мусить проходити через nginx.
+
+---
+
+## 2. Архітектура
+
+Усе публічне стоїть за єдиним зворотним проксі nginx на порту **80**. Застосункові сервіси (Go API, Python-агент) прив'язані лише до `127.0.0.1` — зовнішній світ дістається до них винятково через nginx, який виставляє довірений `X-Real-IP`, тож рейт-ліміт та IP-чорний список неможливо обійти.
 
 ```mermaid
 flowchart LR
-  U([Browser / API client]) -->|HTTP :80| NG[nginx reverse proxy]
+  U([Браузер / API-клієнт]) -->|HTTP :80| NG[зворотний проксі nginx]
 
   NG -->|/app/| FE[React SPA]
   NG -->|/, /auth, /api, /:id| API[Go API]
-  NG -->|/api/query| AG[Python AI Agent]
+  NG -->|/api/query| AG[Python AI-агент]
   NG -->|/grafana/| GR[Grafana]
   NG -->|/jaeger/| JG[Jaeger]
   NG -->|/prometheus/| PR[Prometheus]
 
-  API --> PG[(Postgres<br/>users + links)]
-  API --> RD[(Redis<br/>cache, rate limit,<br/>JWT denylist)]
-  API -->|click events| KF[[Kafka<br/>topic: link_clicks]]
-  API -->|read analytics| CH[(ClickHouse<br/>clicks)]
+  API --> PG[(Postgres<br/>користувачі + посилання)]
+  API --> RD[(Redis<br/>кеш, рейт-ліміт,<br/>denylist JWT)]
+  API -->|події кліків| KF[[Kafka<br/>топік: link_clicks]]
+  API -->|читання аналітики| CH[(ClickHouse<br/>clicks)]
 
   KF --> CO[ClickHouse Consumer]
-  CO -->|batched writes| CH
+  CO -->|пакетні записи| CH
 
-  AG -->|read-only NL→SQL| CH
+  AG -->|лише читання NL→SQL| CH
   AG --> RD
 
   GR --> CH
   GR --> PR
   PR -. scrape .-> API
   PR -. scrape .-> AG
-  API -. traces .-> JG
-  AG  -. traces .-> JG
-  CO  -. traces .-> JG
+  API -. трейси .-> JG
+  AG  -. трейси .-> JG
+  CO  -. трейси .-> JG
 ```
 
-**The click pipeline:** a visitor hits `GET /{short_id}` → Go API looks up the target (Redis, falling back to Postgres) → issues the redirect → asynchronously publishes a click event to Kafka → the consumer batches events and writes them to ClickHouse → Grafana and the AI agent read from ClickHouse. The redirect never blocks on analytics.
+**Конвеєр кліків:** відвідувач звертається до `GET /{short_id}` → Go API шукає ціль (Redis, з відкатом до Postgres) → видає перенаправлення → асинхронно публікує подію кліку в Kafka → консюмер пакетує події та записує їх у ClickHouse → Grafana й AI-агент читають із ClickHouse. Перенаправлення **ніколи не блокується** на аналітиці.
 
-### Services
+### Сервіси
 
-| Service | Image / Build | Role | Internal port |
+| Сервіс | Образ / Збірка | Роль | Внутрішній порт |
 |---|---|---|---|
-| **nginx** | `nginx:1.31-alpine` | Reverse proxy; the single public entrypoint | 80 |
-| **frontend** | built (`frontend/`) | React SPA (served by an internal nginx) | 80 |
-| **go-api** | built (`backend/shortener/`) | REST API: auth, shorten, redirect, per-link analytics | 8080 (+9091 metrics) |
-| **python-agent** | built (`python-agent/`) | AI analytics agent (NL → SQL via Gemini) | 8090 (+9093 metrics) |
-| **clickhouse-consumer** | built (`clickhouse-consumer/`) | Kafka consumer → ClickHouse writer | (9094 metrics) |
-| **postgres** | `postgres:17-alpine` | Source of truth: users + links | 5432 |
-| **redis** | `redis:8-alpine` | Cache, rate-limit counters, JWT logout denylist | 6379 |
-| **kafka** + **zookeeper** | `confluentinc/cp-*:7.6` | Click-event stream (topic `link_clicks`) | 9092 |
-| **clickhouse** | `clickhouse/clickhouse-server:26.5-alpine` | Analytics store (`clicks` table) | 8123 / 9000 |
-| **prometheus** | `prom/prometheus:v3.11` | Metrics scraping & storage | 9090 |
-| **grafana** | `grafana/grafana:13.1` | Dashboards (provisioned automatically) | 3000 |
-| **jaeger** | `jaegertracing/all-in-one:1.76` | Distributed tracing | 16686 / 4318 |
+| **nginx** | `nginx:1.31-alpine` | Зворотний проксі; єдина публічна точка входу | 80 |
+| **frontend** | збірка (`frontend/`) | React SPA (обслуговується внутрішнім nginx) | 80 |
+| **go-api** | збірка (`backend/shortener/`) | REST API: автентифікація, скорочення, перенаправлення, аналітика по посиланню | 8080 (+9091 метрики) |
+| **python-agent** | збірка (`python-agent/`) | AI-агент аналітики (NL → SQL через Gemini) | 8090 (+9093 метрики) |
+| **clickhouse-consumer** | збірка (`clickhouse-consumer/`) | Консюмер Kafka → запис у ClickHouse | (9094 метрики) |
+| **postgres** | `postgres:17-alpine` | Джерело істини: користувачі + посилання | 5432 |
+| **redis** | `redis:8-alpine` | Кеш, лічильники рейт-ліміту, denylist виходу JWT | 6379 |
+| **kafka** + **zookeeper** | `confluentinc/cp-*:7.6` | Потік подій кліків (топік `link_clicks`) | 9092 |
+| **clickhouse** | `clickhouse/clickhouse-server:26.5-alpine` | Сховище аналітики (таблиця `clicks`) | 8123 / 9000 |
+| **prometheus** | `prom/prometheus:v3.11` | Збір та зберігання метрик | 9090 |
+| **grafana** | `grafana/grafana:13.1` | Дашборди (провіжняться автоматично) | 3000 |
+| **jaeger** | `jaegertracing/all-in-one:1.76` | Розподілене трасування | 16686 / 4318 |
 
 ---
 
-## 3. Tech stack
+## 3. Технологічний стек
 
-- **Backend API** — Go, [chi](https://github.com/go-chi/chi) router, [pgx](https://github.com/jackc/pgx) (Postgres), [golang-migrate](https://github.com/golang-migrate/migrate) for migrations, OpenTelemetry, structured `slog` logging.
-- **AI agent** — Python, [FastAPI](https://fastapi.tiangolo.com/), Pydantic, Google Gemini, ClickHouse + Redis clients, OpenTelemetry.
-- **Consumer** — Go, Kafka consumer, batched ClickHouse writes.
-- **Frontend** — React 18, Vite 5, Tailwind CSS 3, React Router 6, axios, Recharts; tested with Vitest + Testing Library.
-- **Data** — Postgres (transactional), ClickHouse (analytical, column-store), Redis (cache/locks), Kafka (event bus).
-- **Ops** — Docker Compose; Prometheus / Grafana / Jaeger; Terraform (DigitalOcean) for cloud deploys; GitHub Actions CI.
+- **Бекенд API** — Go, роутер [chi](https://github.com/go-chi/chi), [pgx](https://github.com/jackc/pgx) (Postgres), [golang-migrate](https://github.com/golang-migrate/migrate) для міграцій, OpenTelemetry, структуроване логування `slog`.
+- **AI-агент** — Python, [FastAPI](https://fastapi.tiangolo.com/), Pydantic, Google Gemini, клієнти ClickHouse + Redis, OpenTelemetry.
+- **Консюмер** — Go, консюмер Kafka, пакетні записи в ClickHouse.
+- **Фронтенд** — React 18, Vite 5, Tailwind CSS 3, React Router 6, axios, Recharts; тестується через Vitest + Testing Library.
+- **Дані** — Postgres (транзакційна БД), ClickHouse (аналітична, колонкова), Redis (кеш/лічильники), Kafka (шина подій).
+- **Ops** — Docker Compose; Prometheus / Grafana / Jaeger; Terraform (DigitalOcean) для хмарних розгортань; GitHub Actions CI.
 
 ---
 
-## 4. Prerequisites — what you need
+## 4. Передумови — що потрібно
 
-**To run the whole stack, the only hard requirement is Docker.** Everything else listed under "Development" is optional and only needed if you want to run a single service outside containers.
+**Щоб запустити весь стек, єдина обов'язкова вимога — Docker.** Усе інше з розділу «Розробка» опційне й потрібне лише якщо ви хочете запускати окремий сервіс поза контейнерами.
 
-| Requirement | Needed for | Notes |
+| Вимога | Для чого | Примітки |
 |---|---|---|
-| **Docker Engine ≥ 24** + **Docker Compose v2** | Running the stack | `docker compose version` should work. Docker Desktop on Windows/macOS includes both. |
-| **~8 GB free RAM** | Running the stack | Kafka + ClickHouse + Grafana + Prometheus are the heavy parts. 4 GB will struggle. |
-| **~10 GB free disk** | Images + data volumes | |
-| **A Google Gemini API key** | The AI Analytics agent | Free tier is plenty. Get one at https://aistudio.google.com/apikey. *Without it, everything else works — only the AI agent page fails.* |
-| **A MaxMind GeoLite2 license** *(optional)* | Country data on clicks | Free signup at https://www.maxmind.com/en/geolite2/signup. *Without it, redirects still work but `country` is blank and the geo dashboard is empty.* See [§5.4](#54-optional-add-geoip-country-data). |
+| **Docker Engine ≥ 24** + **Docker Compose v2** | Запуск стеку | `docker compose version` має працювати. Docker Desktop для Windows/macOS містить обидва. |
+| **~8 ГБ вільної RAM** | Запуск стеку | Kafka + ClickHouse + Grafana + Prometheus — найважчі частини. На 4 ГБ буде важко. |
+| **~10 ГБ вільного диска** | Образи + томи даних | |
+| **Ключ Google Gemini API** | AI-агент аналітики | Безкоштовного тарифу більш ніж достатньо. Отримати: https://aistudio.google.com/apikey. *Без нього все інше працює — не працюватиме лише сторінка AI-аналітики.* |
+| **Ліцензія MaxMind GeoLite2** *(опційно)* | Дані про країну в кліках | Безкоштовна реєстрація: https://www.maxmind.com/en/geolite2/signup. *Без неї перенаправлення працюють, але `country` лишається порожнім, а гео-дашборд — порожній.* Див. [§5.4](#54-опційно-додати-geoip-дані-про-країну). |
 
-You do **not** need Go, Node, or Python installed to run the project — they live inside the Docker images.
+Вам **не** потрібні встановлені Go, Node чи Python, щоб запустити проєкт — вони живуть усередині Docker-образів.
+
+> **Користувачам Windows / PowerShell:** `cp` працює як аліас (`Copy-Item`), тож команди `cp .env.example .env` коректні. А ось `curl` у PowerShell — це аліас до `Invoke-WebRequest`; для прикладів із `curl` нижче використовуйте **`curl.exe`** (він є у Windows 10/11) або просто відкрийте URL у браузері. Сама команда `docker compose up -d --build` однакова всюди.
 
 ---
 
-## 5. Quick start (local)
+## 5. Швидкий старт (локально)
 
-### 5.1 Get the code
+### 5.1 Отримати код
 ```bash
 git clone https://github.com/NikitaPash/url-shortener.git
 cd url-shortener
 ```
 
-### 5.2 Create your `.env`
-The root `.env` is the single source for all deployment secrets.
+### 5.2 Створити `.env`
+Кореневий `.env` — єдине джерело всіх секретів розгортання.
 ```bash
 cp .env.example .env
 ```
-Open `.env` and set real values. **At minimum, change every `change_me_in_production`** and paste your Gemini key. See [§6](#6-configuration-env) for the full reference. A reasonable local-dev `.env`:
-
+**Для локальної розробки дефолтні значення з `.env.example` працюють як є** — нічого міняти не обов'язково. Єдине опційне доповнення: щоб працювала сторінка AI-аналітики, впишіть свій ключ Gemini:
 ```dotenv
-POSTGRES_PASSWORD=devpassword
-JWT_SECRET=dev-only-change-me-please-32-chars-min
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=adminpassword
-CLICKHOUSE_DATABASE=shortener
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=devpassword
-CLICKHOUSE_ANALYST_PASSWORD=devpassword-ro
-KAFKA_TOPIC=link_clicks
-GEMINI_API_KEY=your_real_gemini_key_here
-GEMINI_MODEL=gemini-2.5-flash-lite
-BASE_URL=http://localhost
-GRAFANA_PASSWORD=admin
+GEMINI_API_KEY=ваш_справжній_ключ_gemini
 ```
+Повний перелік змінних — у [§6](#6-конфігурація-env).
 
-> 💡 Generate strong secrets with `openssl rand -hex 32`. For anything internet-facing, do **not** keep the example values.
+> 💡 Для будь-чого, що дивиться в інтернет (продакшн), згенеруйте сильні секрети через `openssl rand -hex 32` і **не** лишайте значення `change_me_in_production`. Для локального запуску це не потрібно.
 
-### 5.3 Start everything
+### 5.3 Запустити все
 ```bash
 docker compose up -d --build
 ```
-The first build downloads images and compiles the Go services, the agent, and the frontend — budget **~5–10 minutes**. Later starts are fast.
+Перша збірка завантажує образи й компілює Go-сервіси, агента та фронтенд — закладіть **~5–10 хвилин**. Подальші запуски швидкі.
 
-There is also a `Makefile` wrapper if you prefer:
+Якщо зручніше — є обгортка `Makefile`:
 ```bash
 make up        # docker compose up -d
 make rebuild   # docker compose up -d --build
@@ -176,245 +166,256 @@ make logs      # docker compose logs -f --tail=50
 make down      # docker compose down
 ```
 
-### 5.4 (Optional) Add GeoIP country data
-Skip this if you don't need country breakdowns. With a MaxMind license key:
-```bash
-LICENSE=<your_maxmind_license_key>
-curl -sL "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${LICENSE}&suffix=tar.gz" -o /tmp/geo.tar.gz
-mkdir -p backend/shortener/data
-tar -xzf /tmp/geo.tar.gz --strip-components=1 -C backend/shortener/data --wildcards '*/GeoLite2-Country.mmdb'
-docker compose up -d --build go-api   # rebuild so the DB is baked into the image
+### 5.4 (Опційно) Додати GeoIP дані про країну
+Пропустіть, якщо розбивка по країнах не потрібна. З ліцензійним ключем MaxMind найпростіший шлях — впишіть ключ у `.env`:
+```dotenv
+MAXMIND_LICENSE_KEY=ваш_ключ_maxmind
 ```
-On Windows without `tar`/`curl`, download the `GeoLite2-Country` `.mmdb` from the MaxMind portal manually and drop it at `backend/shortener/data/GeoLite2-Country.mmdb`.
-
-### 5.5 Verify it's up
+…і запустіть скрипт, який завантажить базу в `backend/shortener/data/`, після чого перезберіть go-api:
 ```bash
-docker compose ps                 # all services "running"; most become "healthy" within ~30–60s
-curl -s http://localhost/healthz  # 200 OK (nginx → go-api liveness)
+bash scripts/fetch-geoip.sh
+docker compose up -d --build go-api   # «запікає» базу в образ
 ```
-Then open **http://localhost/app/** in your browser.
+Ключ також можна передати аргументом: `bash scripts/fetch-geoip.sh ваш_ключ`. Без ключа перенаправлення працюють, просто колонка `country` лишається порожньою.
 
-### 5.6 Stop it
+### 5.5 Перевірити, що все піднялося
 ```bash
-docker compose down       # stop, keep data
-docker compose down -v    # stop AND wipe all volumes (DESTRUCTIVE: deletes users, links, analytics)
+docker compose ps                 # усі сервіси "running"; більшість стають "healthy" за ~30–60с
+curl -s http://localhost/healthz  # 200 OK (nginx → go-api liveness)   [у PowerShell: curl.exe]
+```
+Потім відкрийте **http://localhost/app/** у браузері.
+
+### 5.6 Зупинити
+```bash
+docker compose down       # зупинити, дані лишаються
+docker compose down -v    # зупинити ТА стерти всі томи (ДЕСТРУКТИВНО: видаляє користувачів, посилання, аналітику)
 ```
 
 ---
 
-## 6. Configuration (`.env`)
+## 6. Конфігурація (`.env`)
 
-All deployment configuration lives in the root `.env` (copied from `.env.example`). Docker Compose injects these into the services.
+Уся конфігурація розгортання живе в кореневому `.env` (копіюється з `.env.example`). Docker Compose підставляє ці значення в сервіси. **Для локалу дефолти працюють як є.**
 
-| Variable | Required | Default (example) | What it controls |
+| Змінна | Обов'язкова | Дефолт (приклад) | Що контролює |
 |---|:---:|---|---|
-| `POSTGRES_PASSWORD` | ✅ | — | Postgres password used by the Go API. Use a strong random value. |
-| `JWT_SECRET` | ✅ | — | Signs & verifies user JWTs. **Shared** by the Go API and the Python agent — they must match. Use `openssl rand -hex 32`. |
-| `ADMIN_EMAIL` | optional | `admin@example.com` | Seeds an admin account on startup. Gates the **Admin Panel** in the UI. Leave blank to skip seeding. |
-| `ADMIN_PASSWORD` | optional | — | Password for the seeded admin. **Reset to this value on every Go API restart.** |
-| `CLICKHOUSE_DATABASE` | ✅ | `shortener` | ClickHouse database name. Keep the default. |
-| `CLICKHOUSE_USER` | ✅ | `default` | ClickHouse **write** user (used by the consumer). |
-| `CLICKHOUSE_PASSWORD` | ✅ | — | Password for the write user. |
-| `CLICKHOUSE_ANALYST_PASSWORD` | ✅ | — | Password for the dedicated **read-only** `analyst` user the AI agent and per-link analytics connect as. Keep it separate from the write password. |
-| `KAFKA_TOPIC` | ✅ | `link_clicks` | Topic for click events. Keep the default. |
-| `GEMINI_API_KEY` | ✅* | — | Powers the AI agent. *Required only for the AI Analytics page; the rest of the app runs without it.* |
-| `GEMINI_MODEL` | optional | `gemini-2.5-flash-lite` | Any available Gemini model. |
-| `BASE_URL` | ✅ | `http://localhost` | Public root URL used to build the short links returned to clients. For a deployed instance use `https://yourdomain.com` or `http://<server-ip>`. |
-| `GRAFANA_PASSWORD` | ✅ | `admin` | Password for the Grafana `admin` login. |
+| `POSTGRES_PASSWORD` | ✅ | `change_me_in_production` | Пароль Postgres, який використовує Go API. Для продакшну — сильне випадкове значення. |
+| `JWT_SECRET` | ✅ | `change_me_in_production` | Підписує та перевіряє JWT користувачів. **Спільний** для Go API та Python-агента — мусять збігатися. Використайте `openssl rand -hex 32`. |
+| `ADMIN_EMAIL` | опційно | `admin@example.com` | Сідить адмін-акаунт при старті. Відкриває **Адмін-панель** в UI. Лишіть порожнім, щоб пропустити сідинг. |
+| `ADMIN_PASSWORD` | опційно | `change_me_in_production` | Пароль засідженого адміна. **Скидається до цього значення при кожному рестарті Go API.** |
+| `CLICKHOUSE_DATABASE` | ✅ | `shortener` | Назва бази ClickHouse. Лишіть за замовчуванням. |
+| `CLICKHOUSE_USER` | ✅ | `default` | **Запис**-користувач ClickHouse (використовує консюмер). |
+| `CLICKHOUSE_PASSWORD` | ✅ | `change_me_in_production` | Пароль запис-користувача. |
+| `CLICKHOUSE_ANALYST_PASSWORD` | ✅ | `change_me_in_production` | Пароль окремого **read-only** користувача `analyst`, від імені якого підключаються AI-агент і аналітика по посиланню. Тримайте окремо від пароля запис-користувача. |
+| `KAFKA_TOPIC` | ✅ | `link_clicks` | Топік для подій кліків. Лишіть за замовчуванням. |
+| `GEMINI_API_KEY` | ✅* | `your_gemini_api_key_here` | Живить AI-агента. *Потрібен лише для сторінки AI-аналітики; решта застосунку працює без нього.* |
+| `GEMINI_MODEL` | опційно | `gemini-2.5-flash-lite` | Будь-яка доступна модель Gemini. |
+| `MAXMIND_LICENSE_KEY` | опційно | *(порожньо)* | Ключ для `scripts/fetch-geoip.sh` (завантаження бази країн). Без нього `country` лишається порожнім. |
+| `BASE_URL` | ✅ | `http://localhost` | Публічний кореневий URL для побудови коротких посилань, що повертаються клієнтам. Для розгорнутого інстансу — `https://ваш-домен` або `http://<ip-сервера>`. |
+| `GRAFANA_PASSWORD` | ✅ | `admin` | Пароль логіну `admin` у Grafana. |
+| `NGINX_CONF`, `DOMAIN`, `STAGING` | лише прод | див. `.env.example` | Домен і TLS для серверного розгортання (з `docker-compose.prod.yml`). Локально лишіть за замовчуванням. |
 
-**Tunable defaults baked into the Go API** (override via the service environment if you ever need to): rate limits — `RATE_LIMIT_AUTH=10`, `RATE_LIMIT_REDIRECT=100`, `RATE_LIMIT_API=30` (requests/min/IP); `JWT_EXPIRY=24h`; `DB_MAX_CONNS=10`. The AI endpoint is additionally throttled by nginx to **20 requests/min/IP**.
+**Налаштовувані дефолти, «запечені» в Go API** (за потреби перевизначаються через оточення сервісу): рейт-ліміти — `RATE_LIMIT_AUTH=10`, `RATE_LIMIT_REDIRECT=100`, `RATE_LIMIT_API=30` (запитів/хв/IP); `JWT_EXPIRY=24h`; `DB_MAX_CONNS=10`. Ендпоінт AI додатково обмежений nginx до **20 запитів/хв/IP**.
 
 ---
 
-## 7. Where everything lives (URLs & ports)
+## 7. Де що живе (URL та порти)
 
-With `BASE_URL=http://localhost`, go through nginx (port 80) for everything:
+З `BASE_URL=http://localhost` усе йде через nginx (порт 80):
 
-| What | URL |
+| Що | URL |
 |---|---|
-| **Web app (SPA)** | http://localhost/app/ |
-| **Short links / redirects** | http://localhost/{short_id} |
+| **Вебзастосунок (SPA)** | http://localhost/app/ |
+| **Короткі посилання / перенаправлення** | http://localhost/{short_id} |
 | **REST API** | http://localhost/api/… , http://localhost/auth/… |
-| **AI analytics endpoint** | http://localhost/api/query |
-| **Grafana** | http://localhost/grafana/ — login `admin` / `$GRAFANA_PASSWORD` |
+| **Ендпоінт AI-аналітики** | http://localhost/api/query |
+| **Grafana** | http://localhost/grafana/ — логін `admin` / `$GRAFANA_PASSWORD` |
 | **Prometheus** | http://localhost/prometheus/ |
-| **Jaeger (tracing)** | http://localhost/jaeger/ |
+| **Jaeger (трасування)** | http://localhost/jaeger/ |
 | **Health check** | http://localhost/healthz |
 
-Several backing services also publish host ports for direct inspection during local dev: Postgres `:5432`, Redis `:6379`, Kafka `:9092`, ClickHouse `:8123` (HTTP) / `:9000` (native), Grafana `:3000`, Prometheus `:9090`, Jaeger `:16686`. The Go API (`:8080`) and Python agent (`:8090`) are intentionally bound to `127.0.0.1` only.
+Кілька бекенд-сервісів також публікують хост-порти для прямого інспектування під час локальної розробки: Postgres `:5432`, Redis `:6379`, Kafka `:9092`, ClickHouse `:8123` (HTTP) / `:9000` (native), Grafana `:3000`, Prometheus `:9090`, Jaeger `:16686`. Go API (`:8080`) та Python-агент (`:8090`) навмисно прив'язані лише до `127.0.0.1`.
 
 ---
 
-## 8. Using the app
+## 8. Користування застосунком
 
-1. **Open** http://localhost/app/.
-2. **Register** a new account (or **log in** with the seeded admin: `ADMIN_EMAIL` / `ADMIN_PASSWORD`).
-3. **Create a link** — paste a long URL, optionally set a custom alias. You get back a short URL like `http://localhost/abc123`.
-4. **Test the redirect** — open the short URL (or `curl -i http://localhost/abc123`). It 301/302s to the target and records a click.
-5. **View analytics** — the dashboard shows your links; open a link's analytics page for its click breakdown.
-6. **Ask the AI** — go to the **Analytics** page and ask a question in plain English (e.g. *"top 5 referrers in the last 7 days"*). Available to any logged-in user; results are scoped to your own links only.
-7. **Admin Panel** (`/admin`) — visible only to the seeded admin account.
+1. **Відкрийте** http://localhost/app/.
+2. **Зареєструйтеся** (або **увійдіть** засідженим адміном: `ADMIN_EMAIL` / `ADMIN_PASSWORD`).
+3. **Створіть посилання** — вставте довгий URL, опційно задайте користувацький аліас. Отримаєте короткий URL на кшталт `http://localhost/abc123`.
+4. **Перевірте перенаправлення** — відкрийте коротке посилання (або `curl -i http://localhost/abc123`). Воно віддає 302 на ціль і записує клік.
+5. **Перегляньте аналітику** — дашборд показує ваші посилання; відкрийте сторінку аналітики посилання для розбивки кліків.
+6. **Спитайте AI** — на сторінці **Analytics** поставте запитання звичайною мовою (напр. *«топ-5 реферерів за останні 7 днів»*). Доступно будь-якому залогіненому користувачу; результати обмежені лише вашими посиланнями.
+7. **Адмін-панель** (`/admin`) — видима лише засідженому адмін-акаунту.
 
-> Click data flows through Kafka → the consumer → ClickHouse, so brand-new clicks can take a few seconds to appear in analytics. Redirects themselves are instant.
+> Дані кліків ідуть через Kafka → консюмер → ClickHouse, тож зовсім свіжі кліки можуть з'явитися в аналітиці за кілька секунд. Самі перенаправлення — миттєві.
 
 ---
 
-## 9. API reference
+## 9. Довідник API
 
-Base URL (local): `http://localhost`. Authenticated endpoints expect `Authorization: Bearer <token>`.
+Базовий URL (локально): `http://localhost`. Автентифіковані ендпоінти очікують `Authorization: Bearer <token>`.
 
-| Method | Path | Auth | Purpose | Rate limit (per IP) |
+| Метод | Шлях | Auth | Призначення | Рейт-ліміт (на IP) |
 |---|---|:---:|---|---|
-| `POST` | `/auth/register` | — | Create an account | 10/min |
-| `POST` | `/auth/login` | — | Log in, returns a JWT | 10/min |
-| `POST` | `/auth/logout` | ✅ | Invalidate the current JWT (Redis denylist) | 30/min |
-| `POST` | `/api/shorten` | ✅ | Create a short link (optional custom alias) | 30/min |
-| `GET`  | `/api/links` | ✅ | List your links | 30/min |
-| `GET`  | `/api/links/{id}/analytics` | ✅ | Analytics for one link | 30/min |
-| `GET`  | `/{short_id}` | — | Redirect to the target URL (records a click) | 100/min |
-| `POST` | `/api/query` | ✅ | Ask the AI agent a question | 20/min (nginx) |
+| `POST` | `/auth/register` | — | Створити акаунт | 10/хв |
+| `POST` | `/auth/login` | — | Увійти, повертає JWT | 10/хв |
+| `POST` | `/auth/logout` | ✅ | Інвалідувати поточний JWT (denylist у Redis) | 30/хв |
+| `POST` | `/api/shorten` | ✅ | Створити коротке посилання (опц. аліас) | 30/хв |
+| `GET`  | `/api/links` | ✅ | Список ваших посилань | 30/хв |
+| `GET`  | `/api/links/{id}/analytics` | ✅ | Аналітика одного посилання | 30/хв |
+| `GET`  | `/{short_id}` | — | Перенаправлення на цільовий URL (записує клік) | 100/хв |
+| `POST` | `/api/query` | ✅ | Запитати AI-агента | 20/хв (nginx) |
 | `GET`  | `/healthz` | — | Liveness | — |
-| `GET`  | `/readyz` | — | Readiness (checks Postgres + Redis) | — |
+| `GET`  | `/readyz` | — | Readiness (перевіряє Postgres + Redis) | — |
 
-### Example flow
+### Приклад послідовності
 
 ```bash
-# 1) Register (or log in) — returns a JWT
+# 1) Увійти (або зареєструватися) — повертає JWT
 TOKEN=$(curl -s -X POST http://localhost/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"adminpassword"}' | jq -r '.token')
+  -d '{"email":"admin@example.com","password":"change_me_in_production"}' | jq -r '.token')
 
-# 2) Shorten a URL
+# 2) Скоротити URL
 curl -s -X POST http://localhost/api/shorten \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com/a/very/long/path","custom_alias":"promo"}'
 
-# 3) Follow the short link (records a click)
+# 3) Перейти за коротким посиланням (записує клік)
 curl -i http://localhost/promo
 
-# 4) Ask the AI agent
+# 4) Запитати AI-агента
 curl -s -X POST http://localhost/api/query \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"question":"how many clicks did I get in the last 7 days?"}'
+  -d '{"question":"скільки кліків я отримав за останні 7 днів?"}'
 ```
 
-> The exact request/response JSON shapes are defined in `backend/shortener/internal/handler/` (Go API) and `python-agent/app/models/schemas.py` (agent). The web UI is the easiest way to exercise everything.
+> Точні форми запитів/відповідей JSON визначені в `backend/shortener/internal/handler/` (Go API) та `python-agent/app/models/schemas.py` (агент). Найпростіший спосіб усе випробувати — вебінтерфейс.
 
 ---
 
-## 10. The AI analytics agent
+## 10. AI-агент аналітики
 
-The **Analytics** page lets any logged-in user ask natural-language questions about their traffic. Behind the scenes (`python-agent/`):
+Сторінка **Analytics** дозволяє будь-якому залогіненому користувачу ставити запитання природною мовою про свій трафік. Під капотом (`python-agent/`):
 
-1. **Authenticate** — the request's JWT is verified (signature, expiry, and the shared logout denylist).
-2. **Generate** — the question + schema context is sent to **Gemini**, which returns a SQL query (or flags the question as off-topic).
-3. **Validate** — a SQL validator rejects anything that isn't a safe, single, read-only `SELECT`.
-4. **Scope & execute** — the query is forced to the authenticated user's `user_id` and run against ClickHouse as a **read-only** user, with row and time limits.
-5. **Return** — the answer comes back as columns + rows, along with the SQL and a short explanation.
+1. **Автентифікація** — JWT запиту перевіряється (підпис, термін дії та спільний denylist виходу).
+2. **Генерація** — запитання + контекст схеми надсилаються в **Gemini**, який повертає SQL-запит (або позначає запитання як нерелевантне).
+3. **Валідація** — валідатор SQL відхиляє все, що не є безпечним, одиночним, лише-для-читання `SELECT`.
+4. **Обмеження та виконання** — запит примусово прив'язується до `user_id` автентифікованого користувача й виконується проти ClickHouse від імені **read-only** користувача, з лімітами на рядки й час.
+5. **Повернення** — відповідь приходить як колонки + рядки разом із SQL і коротким поясненням.
 
-Safety properties worth noting: the agent connects to ClickHouse as a dedicated **read-only** `analyst` user (it physically cannot write), every query is **user-scoped at the DB layer** (you only ever see your own clicks), and the endpoint is rate-limited at nginx since each call costs a Gemini request.
+Вартісні властивості безпеки: агент підключається до ClickHouse як окремий **read-only** користувач `analyst` (фізично не може писати), кожен запит **прив'язаний до користувача на рівні БД** (ви бачите лише свої кліки), а ендпоінт обмежений рейт-лімітом на nginx, бо кожен виклик коштує запиту до Gemini.
 
-There's also an evaluation harness at `python-agent/evaluation/` (`run_eval.py` + `benchmark.json`) for measuring NL→SQL quality.
-
----
-
-## 11. Observability
-
-- **Grafana** (http://localhost/grafana/) — dashboards are auto-provisioned: click volume, geo distribution, device breakdown, bot traffic, top referrers, link leaderboard, and system health. Datasources (ClickHouse + Prometheus) are wired up automatically.
-- **Prometheus** (http://localhost/prometheus/) — scrapes metrics from the Go API and Python agent.
-- **Jaeger** (http://localhost/jaeger/) — end-to-end traces spanning nginx → Go API → Kafka → consumer → ClickHouse, and the agent's NL→SQL path.
-
-A deeper guide to the metrics and dashboards lives in [`metrics.md`](metrics.md).
+Також є харнес оцінювання в `python-agent/evaluation/` (`run_eval.py` + `benchmark.json`) для вимірювання якості NL→SQL.
 
 ---
 
-## 12. Development & testing
+## 11. Спостережуваність
 
-The Docker workflow above is all you need to *run* the project. For working on individual services:
+- **Grafana** (http://localhost/grafana/) — дашборди провіжняться автоматично: обсяг кліків, географія, розподіл пристроїв, трафік ботів, топ реферерів, рейтинг посилань і стан системи. Джерела даних (ClickHouse + Prometheus) під'єднуються автоматично.
+- **Prometheus** (http://localhost/prometheus/) — збирає метрики з Go API та Python-агента.
+- **Jaeger** (http://localhost/jaeger/) — наскрізні трейси через nginx → Go API → Kafka → консюмер → ClickHouse, а також шлях NL→SQL агента.
 
-### Run the test suites
+Глибший гайд по метриках і дашбордах — у [`metrics.md`](metrics.md).
+
+---
+
+## 12. Розробка та тестування
+
+Описаного вище Docker-воркфлоу достатньо, щоб *запустити* проєкт. Для роботи над окремими сервісами:
+
+### Запуск тестових наборів
 ```bash
 make test
 ```
-This runs the Go API tests, the consumer tests, and the agent's pytest suite. Running it directly requires the Go toolchain and [uv](https://docs.astral.sh/uv/) installed locally; otherwise run tests inside the service containers. Individually:
+Запускає тести Go API, тести консюмера та pytest-набір агента. Прямий запуск потребує тулчейну Go та локально встановленого [uv](https://docs.astral.sh/uv/); інакше запускайте тести всередині контейнерів сервісів. Окремо:
 ```bash
 cd backend/shortener && go test ./...      # Go API
-cd clickhouse-consumer && go test ./...     # consumer
-cd python-agent && uv run pytest tests/ -v  # agent  (uv syncs deps from pyproject.toml/uv.lock automatically)
+cd clickhouse-consumer && go test ./...     # консюмер
+cd python-agent && uv run pytest tests/ -v  # агент (uv сам синхронізує залежності з pyproject.toml/uv.lock)
 ```
-The agent's deps are managed with **uv** (`python-agent/pyproject.toml` + `uv.lock`); `uv run` provisions the venv on first use. The pytest run prints a unit-test coverage report (via `pytest-cov`); `make coverage` also writes a browsable HTML report to `python-agent/htmlcov/`.
+Залежності агента керуються через **uv** (`python-agent/pyproject.toml` + `uv.lock`); `uv run` створює venv при першому використанні. Прогон pytest друкує звіт покриття юніт-тестів (через `pytest-cov`); `make coverage` також пише браузерний HTML-звіт у `python-agent/htmlcov/`.
 
-### Frontend
-The frontend is built and served via Docker — there's no local Node required for normal use. To work on it with hot reload you can install deps and run Vite locally:
+> **Інтеграційні тести** (проти реальних Postgres/Redis/Kafka/ClickHouse) — локальні й виконуються на вимогу проти інфра-харнесу `docker-compose.test.yml`. Вони навмисно виключені з CI та зі звичайного `go test ./...` / `pytest`. Див. `make test-infra-up`, `make test-integration`, `make test-integration-agent` і повний план у [`integration-test-plan.md`](integration-test-plan.md).
+
+### Фронтенд
+Фронтенд збирається й обслуговується через Docker — для звичайного користування локальний Node не потрібен. Щоб працювати над ним із гарячим перезавантаженням, можна встановити залежності й запустити Vite локально:
 ```bash
 cd frontend
 npm install
-npm run dev        # Vite dev server
-npm test           # Vitest unit/component tests
+npm run dev        # dev-сервер Vite
+npm test           # юніт/компонентні тести Vitest
 ```
 
+### Навантажувальне тестування / демо
+У `loadtest/` є PEP-723 скрипти: `benchmark.py` (перцентилі затримки + розгортка конкурентності з PNG-графіками) і `showcase.py` (наскрізне демо можливостей). Запуск: `uv run loadtest/benchmark.py`. Результати → `loadtest/results/` (у git/Docker ігнорі).
+
 ### CI
-GitHub Actions workflows live in `.github/workflows/` (`code-check.yml` for lint/test, `ci-cd.yml` for the pipeline). Go linting is configured via `.golangci.yml` in each Go module.
+Воркфлоу GitHub Actions — у `.github/workflows/` (`code-check.yml` для лінту/тестів, `ci-cd.yml` для конвеєра деплою). Лінтинг Go налаштований через `.golangci.yml` у кожному Go-модулі.
 
 ---
 
-## 13. Project structure
+## 13. Структура проєкту
 
 ```
 url-shortener/
-├── docker-compose.yml          # The whole stack (start here)
-├── .env.example                # Single source of all secrets — copy to .env
+├── docker-compose.yml          # Весь стек (починайте звідси)
+├── docker-compose.prod.yml     # Прод-оверлей: nginx :443 + certbot (TLS)
+├── docker-compose.test.yml     # Інфра-харнес для локальних інтеграційних тестів
+├── .env.example                # Єдине джерело всіх секретів — копіюйте в .env
 ├── Makefile                    # up / down / rebuild / logs / ps / test
-├── deployment.md               # Full server-deploy guide (DigitalOcean / any Docker host)
-├── metrics.md                  # Observability guide
+├── deployment.md               # Повний гайд деплою на сервер (DigitalOcean / будь-який Docker-хост)
+├── metrics.md                  # Гайд спостережуваності
 │
 ├── backend/shortener/          # Go REST API
-│   ├── cmd/shortener/main.go   #   entrypoint: wiring, routes, graceful shutdown
+│   ├── cmd/shortener/main.go   #   точка входу: проводка, маршрути, graceful shutdown
 │   ├── internal/               #   handler / service / storage / middleware / cache / event / geo / telemetry
-│   └── migrations/             #   SQL migrations (auto-applied on startup)
+│   └── migrations/             #   SQL-міграції (застосовуються при старті)
 │
-├── clickhouse-consumer/        # Go: Kafka → ClickHouse writer
-├── python-agent/               # FastAPI AI agent (NL → SQL via Gemini) + evaluation harness
+├── clickhouse-consumer/        # Go: запис Kafka → ClickHouse
+├── python-agent/               # FastAPI AI-агент (NL → SQL через Gemini) + харнес оцінювання
 ├── frontend/                   # React + Vite + Tailwind SPA
 │
-├── nginx/                      # Reverse proxy config (single public entrypoint)
-├── clickhouse/                 # init.sql + user definitions (write + read-only analyst)
-├── kafka/                      # topic-creation script
+├── nginx/                      # Конфіг зворотного проксі (єдина публічна точка входу)
+├── clickhouse/                 # init.sql + визначення користувачів (запис + read-only analyst)
+├── kafka/                      # скрипт створення топіка
 ├── redis/                      # redis.conf
-├── prometheus/                 # scrape config
-├── grafana/provisioning/       # datasources + dashboards (auto-loaded)
-└── terraform/                  # DigitalOcean infra-as-code (optional cloud deploy)
+├── prometheus/                 # конфіг скрейпу
+├── grafana/provisioning/       # джерела даних + дашборди (автозавантаження)
+├── loadtest/                   # benchmark.py + showcase.py (навантаження/демо)
+└── terraform/                  # DigitalOcean infra-as-code (опційний хмарний деплой)
 ```
 
 ---
 
-## 14. Deploying to a server
+## 14. Розгортання на сервері
 
-For a full walkthrough — provisioning a VM with Terraform on DigitalOcean (or deploying to any Docker host), wiring a domain, adding TLS, security hardening, and backups — see **[`deployment.md`](deployment.md)**.
+Повний покроковий гайд — провіжнінг VM через Terraform на DigitalOcean (або деплой на будь-який Docker-хост), підключення домену, TLS, гартування безпеки та бекапи — див. **[`deployment.md`](deployment.md)**.
 
-The short version: it's the same `docker compose up -d --build` on a Linux host with ~8 GB RAM, port 80 open, and a properly filled-in `.env` (strong secrets, `BASE_URL` set to your public URL). The `terraform/` directory can provision the VM, firewall, and a reserved IP for you.
+Якщо коротко: це той самий `docker compose up -d --build` на Linux-хості з ~8 ГБ RAM, відкритим портом 80 (та 443 для TLS) і правильно заповненим `.env` (сильні секрети, `BASE_URL` встановлено на ваш публічний URL). Прод-деплой використовує оверлей `docker-compose.prod.yml` (nginx :443 + certbot). Каталог `terraform/` може провіжнити VM, фаєрвол і зарезервований IP за вас.
 
 ---
 
-## 15. Troubleshooting
+## 15. Усунення несправностей
 
-| Symptom | Likely cause | Fix |
+| Симптом | Ймовірна причина | Виправлення |
 |---|---|---|
-| AI Analytics page returns an error / 500 | Missing or invalid `GEMINI_API_KEY` | Set a valid key in `.env`, then `docker compose up -d python-agent`. Check `docker compose logs python-agent`. |
-| Geo dashboard empty; every `country` is blank | GeoIP database not installed | See [§5.4](#54-optional-add-geoip-country-data), then `docker compose up -d --build go-api`. |
-| Short links come back as `http://localhost/...` on a server | `BASE_URL` not set to the public URL | Edit `.env`, `docker compose up -d go-api`. |
-| Can't log in as admin | `ADMIN_EMAIL` / `ADMIN_PASSWORD` not set | Add them to `.env`, `docker compose up -d go-api`; look for `admin user ensured` in logs. |
-| New clicks don't show in analytics immediately | Async Kafka → consumer → ClickHouse pipeline | Wait a few seconds and refresh. |
-| A service is "unhealthy" right after start | Still warming up (Kafka/ClickHouse are slow to boot) | Give it 30–60s; check `docker compose ps` and `docker compose logs <service>`. |
-| Port already in use (80/5432/3000/…) | Another process owns the port | Stop the conflicting process, or remap the port in `docker-compose.yml`. |
-| Out-of-memory / containers killed | < 8 GB available to Docker | Increase Docker's memory limit (Docker Desktop → Settings → Resources). |
+| Сторінка AI-аналітики повертає помилку / 500 | Відсутній або невалідний `GEMINI_API_KEY` | Впишіть валідний ключ у `.env`, потім `docker compose up -d python-agent`. Перевірте `docker compose logs python-agent`. |
+| Гео-дашборд порожній; кожен `country` порожній | Базу GeoIP не встановлено | Див. [§5.4](#54-опційно-додати-geoip-дані-про-країну), потім `docker compose up -d --build go-api`. |
+| Короткі посилання повертаються як `http://localhost/...` на сервері | `BASE_URL` не виставлено на публічний URL | Відредагуйте `.env`, `docker compose up -d go-api`. |
+| Не вдається увійти як адмін | `ADMIN_EMAIL` / `ADMIN_PASSWORD` не задані | Додайте їх у `.env`, `docker compose up -d go-api`; шукайте `admin user ensured` у логах. |
+| Нові кліки не показуються в аналітиці одразу | Асинхронний конвеєр Kafka → консюмер → ClickHouse | Зачекайте кілька секунд і оновіть сторінку. |
+| Сервіс «unhealthy» одразу після старту | Ще прогрівається (Kafka/ClickHouse стартують повільно) | Дайте 30–60с; перевірте `docker compose ps` і `docker compose logs <сервіс>`. |
+| Порт уже зайнятий (80/5432/3000/…) | Інший процес тримає порт | Зупиніть конфліктний процес або перемапте порт у `docker-compose.yml`. |
+| Out-of-memory / контейнери вбиваються | < 8 ГБ доступно для Docker | Збільште ліміт пам'яті Docker (Docker Desktop → Settings → Resources). |
 
-More deployment-specific troubleshooting is in [`deployment.md`](deployment.md).
+Більше специфічного для деплою — у [`deployment.md`](deployment.md).
 
 ---
 
-## 16. License
+## 16. Ліцензія
 
-See [`LICENSE`](LICENSE).
+Див. [`LICENSE`](LICENSE).
