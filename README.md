@@ -48,37 +48,7 @@
 ## 2. Архітектура
 
 Усе публічне стоїть за єдиним зворотним проксі nginx на порту **80**. Застосункові сервіси (Go API, Python-агент) прив'язані лише до `127.0.0.1` — зовнішній світ дістається до них винятково через nginx, який виставляє довірений `X-Real-IP`, тож рейт-ліміт та IP-чорний список неможливо обійти.
-
-```mermaid
-flowchart LR
-  U([Браузер / API-клієнт]) -->|HTTP :80| NG[зворотний проксі nginx]
-
-  NG -->|/app/| FE[React SPA]
-  NG -->|/, /auth, /api, /:id| API[Go API]
-  NG -->|/api/query| AG[Python AI-агент]
-  NG -->|/grafana/| GR[Grafana]
-  NG -->|/jaeger/| JG[Jaeger]
-  NG -->|/prometheus/| PR[Prometheus]
-
-  API --> PG[(Postgres<br/>користувачі + посилання)]
-  API --> RD[(Redis<br/>кеш, рейт-ліміт,<br/>denylist JWT)]
-  API -->|події кліків| KF[[Kafka<br/>топік: link_clicks]]
-  API -->|читання аналітики| CH[(ClickHouse<br/>clicks)]
-
-  KF --> CO[ClickHouse Consumer]
-  CO -->|пакетні записи| CH
-
-  AG -->|лише читання NL→SQL| CH
-  AG --> RD
-
-  GR --> CH
-  GR --> PR
-  PR -. scrape .-> API
-  PR -. scrape .-> AG
-  API -. трейси .-> JG
-  AG  -. трейси .-> JG
-  CO  -. трейси .-> JG
-```
+![img.png](img.png)
 
 **Конвеєр кліків:** відвідувач звертається до `GET /{short_id}` → Go API шукає ціль (Redis, з відкатом до Postgres) → видає перенаправлення → асинхронно публікує подію кліку в Kafka → консюмер пакетує події та записує їх у ClickHouse → Grafana й AI-агент читають із ClickHouse. Перенаправлення **ніколи не блокується** на аналітиці.
 
