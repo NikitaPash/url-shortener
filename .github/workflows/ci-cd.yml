@@ -59,9 +59,9 @@ jobs:
             deadline=$((SECONDS + 120))
             while true; do
               unhealthy=$($COMPOSE ps --format json \
-                | jq -rs '.[] | select(.Health == "unhealthy") | .Name' || true)
+                | jq -rs '.[] | select(.Health == "unhealthy") | .Service' || true)
               starting=$($COMPOSE ps --format json \
-                | jq -rs '.[] | select(.Health == "starting") | .Name' || true)
+                | jq -rs '.[] | select(.Health == "starting") | .Service' || true)
 
               if [ -z "$unhealthy" ] && [ -z "$starting" ]; then
                 echo "All containers healthy."
