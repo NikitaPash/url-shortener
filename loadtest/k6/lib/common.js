@@ -77,9 +77,15 @@ export function authHeaders(token, extra) {
 // auth/API limiter doesn't throttle the seeding itself on the local rig.
 export function seedLinks() {
   const json = { 'Content-Type': 'application/json' };
-  http.post(`${cfg.base}/auth/register`, JSON.stringify({ email: cfg.email, password: cfg.password }), { headers: ipHeaders(json) });
+  // responseType:'text' keeps the body for these requests despite the scenarios'
+  // global discardResponseBodies:true (kept for the high-RPS redirect phase, whose
+  // 302s have no useful body). Without it, login.json('token') / r.json('id') below
+  // see a null body and throw.
+  const seed = (h) => ({ headers: h, responseType: 'text' });
 
-  const login = http.post(`${cfg.base}/auth/login`, JSON.stringify({ email: cfg.email, password: cfg.password }), { headers: ipHeaders(json) });
+  http.post(`${cfg.base}/auth/register`, JSON.stringify({ email: cfg.email, password: cfg.password }), seed(ipHeaders(json)));
+
+  const login = http.post(`${cfg.base}/auth/login`, JSON.stringify({ email: cfg.email, password: cfg.password }), seed(ipHeaders(json)));
   if (login.status !== 200) {
     fail(`seed: login failed (status ${login.status}): ${login.body}`);
   }
@@ -87,7 +93,7 @@ export function seedLinks() {
 
   const shortIds = [];
   for (let i = 0; i < cfg.seedLinks; i++) {
-    const r = http.post(`${cfg.base}/api/shorten`, JSON.stringify({ url: randItem(TARGET_URLS) }), { headers: authHeaders(token, json) });
+    const r = http.post(`${cfg.base}/api/shorten`, JSON.stringify({ url: randItem(TARGET_URLS) }), seed(authHeaders(token, json)));
     if (r.status === 200 || r.status === 201) {
       shortIds.push(r.json('id'));
     }
