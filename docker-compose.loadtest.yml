@@ -1,0 +1,50 @@
+# docker-compose.loadtest.yml — load-test rig (k6 generator + cAdvisor).
+#
+# Combined with the main compose file (same project, same default network), so the
+# k6 container reaches the API directly at http://go-api:8080 over the internal
+# Docker network — bypassing nginx and the host port. X-Real-IP rotation works
+# there exactly like loadtest/common.py, so the per-IP limiter never throttles.
+#
+# This is the LOCAL rig: good for the decoupling/failure/soak experiments and quick
+# iteration. The generator shares CPU with the stack on one host, so it must NOT be
+# used for the headline absolute capacity number — run k6 from a SEPARATE droplet
+# against the SUT for that (see loadtest/LOAD_TEST_PLAN.md §1b).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d cadvisor
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml run --rm k6 run /scripts/scenarios/redirect_capacity.js
+
+services:
+  k6:
+    image: grafana/k6:latest          # pin to a digest after first pull for reproducibility
+    container_name: shortener-k6
+    profiles: ["loadtest"]            # never starts on a plain `docker compose up`
+    volumes:
+      - ./loadtest/k6:/scripts:ro
+      - ./loadtest/results:/results
+    environment:
+      # Default target = the API over the internal network (no nginx, no host port).
+      # Override LOADTEST_BASE_URL to point at a remote SUT.
+      BASE_URL: ${LOADTEST_BASE_URL:-http://go-api:8080}
+      ROTATE_IP: ${LOADTEST_ROTATE_IP:-true}
+      SEED_LINKS: ${LOADTEST_SEED_LINKS:-50}
+      # k6 scenario knobs (consumed by the scripts; all optional):
+      STAGES: ${LOADTEST_STAGES:-}
+      PROBE_RATE: ${LOADTEST_PROBE_RATE:-}
+      # No default command — pass `run /scripts/scenarios/<x>.js` on the CLI.
+
+  # Per-container CPU/mem/net/disk → names the bottleneck at saturation.
+  # Works cleanly on the Linux droplet (the real capacity SUT). On Windows Docker
+  # Desktop the VM path mounts are flaky — prefer orchestrate/stats-poll.ps1 there.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: shortener-cadvisor
+    profiles: ["loadtest"]
+    privileged: true
+    command: ["--housekeeping_interval=2s", "--docker_only=true"]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    # Scraped by Prometheus at cadvisor:8080 (job added in prometheus/prometheus.yml).
