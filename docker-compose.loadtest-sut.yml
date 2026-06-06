@@ -1,0 +1,24 @@
+# docker-compose.loadtest-sut.yml — apply ON THE SUT (the droplet running the stack)
+# for the clean, app-only capacity run (Path 2): a same-VPC load generator hits
+# go-api:8080 DIRECTLY, so X-Real-IP rotation works (limiter dodged) and the number
+# excludes TLS + nginx overhead.
+#
+# It (a) re-publishes go-api on the SUT's private VPC IP and (b) raises the Go
+# per-IP limiter as a belt-and-suspenders (rotation already dodges it).
+#
+#   SUT_PRIVATE_IP=10.x.x.x docker compose \
+#     -f docker-compose.yml -f docker-compose.loadtest-sut.yml up -d go-api
+#
+# Lock it down with a DigitalOcean firewall: inbound TCP 8080 from the LG droplet
+# ONLY. REVERT after the test (see loadtest/REMOTE-RUNBOOK.md §revert) — do not
+# leave :8080 reachable or the limiter raised.
+services:
+  go-api:
+    # Compose appends this to the base ports list, so go-api stays on 127.0.0.1:8080
+    # for nginx AND becomes reachable on the private interface for the LG.
+    ports:
+      - "${SUT_PRIVATE_IP:?set SUT_PRIVATE_IP to the SUT VPC private IP}:8080:8080"
+    environment:
+      RATE_LIMIT_REDIRECT: "1000000"
+      RATE_LIMIT_API: "1000000"
+      RATE_LIMIT_AUTH: "1000000"

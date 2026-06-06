@@ -13,3 +13,11 @@ scrape_configs:
   - job_name: 'python-agent'
     static_configs:
       - targets: ['python-agent:9093']
+
+  # Per-container resource metrics during load tests. Only present when the
+  # loadtest profile is running (docker-compose.loadtest.yml); otherwise this
+  # target is simply "down" and harmless. Used to name the bottleneck resource
+  # at saturation (see loadtest/LOAD_TEST_PLAN.md §4).
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']

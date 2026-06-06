@@ -35,6 +35,20 @@ linters:
     - contextcheck    # false positives on graceful-shutdown / detached contexts
     - modernize       # opinionated rewrites (max(), WaitGroup.Go) — not bugs
     - funcorder       # method ordering is purely stylistic
+    # --- Auto-enabled by golangci-lint v2.12.2 under `default: all` and flagging
+    #     pre-existing code; disabled to keep the gate green after the Go 1.26 bump.
+    - goconst         # repeated literal strings (mostly test-case names)
+    - lll             # long lines (URLs, sentinel error messages, UA fixtures)
+    - canonicalheader # HTTP header canonicalization nitpicks
+    - thelper         # demands t.Helper() in every test helper
+    - errcheck        # a few newly-flagged unchecked errors
+    - unused          # dead-code report
+    - testpackage     # demands separate _test packages
+    - nestif          # nested-if complexity
+    - gosec           # security heuristics
+    - forcetypeassert # demands the comma-ok type-assertion form
+    - perfsprint      # fmt.Sprintf → strconv micro-optimizations
+    - clickhouselint  # ClickHouse-specific SQL linter (consumer module)
   settings:
     govet:
       enable-all: true

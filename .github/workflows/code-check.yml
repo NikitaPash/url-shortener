@@ -53,9 +53,9 @@ jobs:
           go vet ./...
           go test ./... -count=1 -race -timeout=120s
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          version: v2.12.2
           working-directory: backend/shortener
           args: --timeout=5m
 
@@ -75,9 +75,9 @@ jobs:
           go vet ./...
           go test ./... -count=1 -race -timeout=120s
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          version: v2.12.2
           working-directory: clickhouse-consumer
           args: --timeout=5m
 

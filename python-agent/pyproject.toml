@@ -40,8 +40,18 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Every test run prints the unit-test coverage percentage for the `app` package.
-addopts = "--cov=app --cov-report=term-missing"
+# Default run = the fast unit pass: integration tests (which need the real
+# ClickHouse/Redis from docker-compose.test.yml) are excluded via
+# `-m "not integration"` and opted into explicitly by `make test-integration-agent`
+# (`pytest tests/integration -m integration`). Every run also prints `app`
+# coverage. asyncio_mode=auto lets the async denylist tests run without a
+# per-test marker.
+addopts = "--cov=app --cov-report=term-missing -m 'not integration'"
+asyncio_mode = "auto"
+markers = [
+    "integration: L1 integration tests against real ClickHouse/Redis (docker-compose.test.yml); excluded from the default run.",
+    "gemini: E2E tests that make real Gemini API calls (Phase 4); opt in with --gemini.",
+]
 
 [tool.coverage.run]
 source = ["app"]

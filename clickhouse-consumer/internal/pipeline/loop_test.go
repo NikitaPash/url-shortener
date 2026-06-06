@@ -1,4 +1,4 @@
-package main
+package pipeline
 
 import (
 	"context"
@@ -51,9 +51,9 @@ func testCfg(batchSize int) *config.Config {
 
 // --- tests ---
 
-// TestRunConsumerLoop_FlushOnBatchSize verifies that the loop flushes and commits
+// TestRun_FlushOnBatchSize verifies that the loop flushes and commits
 // when the buffer reaches the configured batch size.
-func TestRunConsumerLoop_FlushOnBatchSize(t *testing.T) {
+func TestRun_FlushOnBatchSize(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	evt := &consumer.ClickEvent{ShortID: "abc", UserID: "u1", Timestamp: time.Now()}
@@ -79,7 +79,7 @@ func TestRunConsumerLoop_FlushOnBatchSize(t *testing.T) {
 		},
 	}
 
-	runConsumerLoop(ctx, testCfg(3), reader, bw)
+	Run(ctx, testCfg(3), reader, bw)
 
 	if !committed {
 		t.Error("expected CommitMessages to be called after batch size reached")
@@ -89,10 +89,10 @@ func TestRunConsumerLoop_FlushOnBatchSize(t *testing.T) {
 	}
 }
 
-// TestRunConsumerLoop_SkipsMalformedEvent verifies that a nil event (malformed
-// JSON in FetchMessage) does not add a row to the ClickHouse batch, but the
-// Kafka offset is still committed so processing advances.
-func TestRunConsumerLoop_SkipsMalformedEvent(t *testing.T) {
+// TestRun_SkipsMalformedEvent verifies that a nil event (malformed JSON in
+// FetchMessage) does not add a row to the ClickHouse batch, but the Kafka offset
+// is still committed so processing advances.
+func TestRun_SkipsMalformedEvent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	callCount := 0
@@ -117,7 +117,7 @@ func TestRunConsumerLoop_SkipsMalformedEvent(t *testing.T) {
 		},
 	}
 
-	runConsumerLoop(ctx, testCfg(1000), reader, bw)
+	Run(ctx, testCfg(1000), reader, bw)
 
 	if len(bw.written) != 0 {
 		t.Errorf("expected 0 CH rows for malformed event, got %d", len(bw.written))
@@ -127,9 +127,9 @@ func TestRunConsumerLoop_SkipsMalformedEvent(t *testing.T) {
 	}
 }
 
-// TestRunConsumerLoop_ShutdownFlushesRemainingRows verifies that events buffered
-// between ticker intervals are written and committed when the context is canceled.
-func TestRunConsumerLoop_ShutdownFlushesRemainingRows(t *testing.T) {
+// TestRun_ShutdownFlushesRemainingRows verifies that events buffered between
+// ticker intervals are written and committed when the context is canceled.
+func TestRun_ShutdownFlushesRemainingRows(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	evt := &consumer.ClickEvent{ShortID: "xyz", UserID: "u2", Timestamp: time.Now()}
@@ -153,7 +153,7 @@ func TestRunConsumerLoop_ShutdownFlushesRemainingRows(t *testing.T) {
 		},
 	}
 
-	runConsumerLoop(ctx, testCfg(100 /* larger than 2 */), reader, bw)
+	Run(ctx, testCfg(100 /* larger than 2 */), reader, bw)
 
 	if len(bw.written) != 2 {
 		t.Errorf("written rows = %d, want 2 after shutdown flush", len(bw.written))
@@ -163,9 +163,9 @@ func TestRunConsumerLoop_ShutdownFlushesRemainingRows(t *testing.T) {
 	}
 }
 
-// TestRunConsumerLoop_WriteError_DoesNotCommit verifies that if WriteBatch fails
-// the Kafka offsets are NOT committed (at-least-once delivery guarantee).
-func TestRunConsumerLoop_WriteError_DoesNotCommit(t *testing.T) {
+// TestRun_WriteError_DoesNotCommit verifies that if WriteBatch fails the Kafka
+// offsets are NOT committed (at-least-once delivery guarantee).
+func TestRun_WriteError_DoesNotCommit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	evt := &consumer.ClickEvent{ShortID: "err", UserID: "u3", Timestamp: time.Now()}
@@ -190,7 +190,7 @@ func TestRunConsumerLoop_WriteError_DoesNotCommit(t *testing.T) {
 		},
 	}
 
-	runConsumerLoop(ctx, testCfg(1), reader, bw)
+	Run(ctx, testCfg(1), reader, bw)
 
 	if committed {
 		t.Error("expected NO commit when WriteBatch fails (at-least-once guarantee)")

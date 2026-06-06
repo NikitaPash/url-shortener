@@ -1,0 +1,28 @@
+#cloud-config
+# First-boot setup for the throwaway k6 LOAD GENERATOR (not the app stack). It only
+# needs Docker + the repo's loadtest scripts; it generates load against the SUT and
+# serves nothing itself.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - git
+  - curl
+
+runcmd:
+  # Enable Docker and allow `docker` without sudo.
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker root
+
+  # Get the k6 scripts (loadtest/k6) + the results dir.
+  - git clone https://github.com/NikitaPash/url-shortener.git /opt/loadtest
+  - mkdir -p /opt/loadtest/loadtest/results
+
+  # Pre-pull the k6 image so the first run starts instantly.
+  - docker pull grafana/k6:latest
+
+  # Signal that cloud-init is done (mirror the SUT convention).
+  - touch /var/log/cloud-init-done

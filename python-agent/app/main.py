@@ -25,8 +25,14 @@ logger = logging.getLogger(__name__)
 # Tracing setup must happen at module level — middleware cannot be added after app starts.
 _resource = Resource.create({"service.name": "python-agent"})
 _provider = TracerProvider(resource=_resource)
-_exporter = OTLPSpanExporter(endpoint=f"http://{settings.jaeger_endpoint}/v1/traces")
-_provider.add_span_processor(BatchSpanProcessor(_exporter))
+# The OTLP exporter spawns a background worker thread that batches spans to
+# Jaeger. Skip it when telemetry is disabled (e.g. tests) so we don't orphan a
+# thread retrying against a collector that isn't there — which otherwise floods
+# the output with ConnectionRefused and an "I/O operation on closed file" once
+# pytest closes its capture stream at session end.
+if settings.otel_enabled:
+    _exporter = OTLPSpanExporter(endpoint=f"http://{settings.jaeger_endpoint}/v1/traces")
+    _provider.add_span_processor(BatchSpanProcessor(_exporter))
 trace.set_tracer_provider(_provider)
 
 

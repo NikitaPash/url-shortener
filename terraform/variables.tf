@@ -27,3 +27,23 @@ variable "region" {
   # Full list: doctl compute region list
   default = "fra1"
 }
+
+# --- Load generator (optional; for the capacity benchmark) ------------------
+variable "enable_loadgen" {
+  description = <<-EOT
+    Create the throwaway k6 load-generator Droplet (same region => same default
+    VPC as the SUT) and open the SUT's PRIVATE :8080 to it. A separate generator
+    is what makes the capacity number defensible — co-locating it with the stack
+    measures the generator, not the server. Spin up only while benchmarking:
+      terraform apply -var="enable_loadgen=true"
+    Set back to false (default) to destroy it AND auto-close the :8080 rule.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "loadgen_size" {
+  description = "Load-generator Droplet size. Should be >= the SUT so the generator is never the bottleneck; s-4vcpu-8gb is ample for k6 driving thousands of GET/s."
+  type        = string
+  default     = "s-4vcpu-8gb"
+}

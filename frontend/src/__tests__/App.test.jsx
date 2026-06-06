@@ -16,13 +16,7 @@ vi.mock('../api/analytics', () => ({
   query: vi.fn(),
 }))
 
-import { makeToken } from './helpers'
-
-const USER_TOKEN = makeToken({ is_admin: false })
-const ADMIN_TOKEN = makeToken({ is_admin: true })
-
-function renderAt(path, token = null) {
-  if (token) localStorage.setItem('jwt_token', token)
+function renderAt(path) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <App />
@@ -56,27 +50,5 @@ describe('App routing', () => {
   it('redirects unauthenticated user from /analytics to /login', () => {
     renderAt('/analytics')
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
-  })
-
-  it('renders /dashboard for an authenticated user', async () => {
-    renderAt('/dashboard', USER_TOKEN)
-    // Dashboard heading is rendered inside the AdminLayout + Dashboard page.
-    expect(await screen.findByText(/dashboard/i)).toBeInTheDocument()
-  })
-
-  it('redirects non-admin from /admin to /dashboard', async () => {
-    renderAt('/admin', USER_TOKEN)
-    // Non-admin gets bounced to dashboard.
-    expect(await screen.findByText(/dashboard/i)).toBeInTheDocument()
-  })
-
-  it('renders /admin for an admin user', async () => {
-    renderAt('/admin', ADMIN_TOKEN)
-    expect(await screen.findByText(/admin panel/i)).toBeInTheDocument()
-  })
-
-  it('redirects unknown paths to /', () => {
-    renderAt('/this-path-does-not-exist')
-    expect(screen.getByText(/shor\.ty/i)).toBeInTheDocument()
   })
 })

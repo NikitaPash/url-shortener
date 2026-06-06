@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import platform
 import sys
 import time
@@ -69,6 +70,26 @@ except Exception:  # noqa: BLE001
 
 RESULTS_ROOT = Path(__file__).resolve().parent / "results"
 MAX_LATENCY_SAMPLES = 20_000  # cap stored raw latencies per scenario
+
+# ---------------------------------------------------------------------------
+# Default target = the deployed PRODUCTION stack.
+# ---------------------------------------------------------------------------
+# The benchmark measures the *live* service the way a real remote client sees it
+# — over TLS, through nginx — so it points at production by default, even when
+# run from a dev laptop. In prod every component sits behind a single nginx
+# origin, so one BASE_URL drives the API target, the gateway (AI agent/SPA) and
+# Prometheus (proxied under /prometheus/). Override precedence:
+#   --base / --gateway (CLI)  >  GO_API / GATEWAY / PROM_URL (env)  >  BASE_URL  >  this default.
+# To hit the LOCAL stack instead (separate host ports per service), run with:
+#   BASE_URL=http://localhost:8080 GATEWAY=http://localhost PROM_URL=http://localhost:9090
+# NOTE: behind nginx the rotated X-Real-IP is overwritten with the real client
+# IP, so the Go per-IP rate limiter (redirect 100/min, api 30/min) throttles a
+# single benchmark client. A remote run therefore measures real per-request
+# latency + the rate limiter, NOT raw server capacity. For a clean capacity
+# number, drive the local stack on :8080 (where IP rotation works) or raise the
+# RATE_LIMIT_* envs on the target first.
+DEFAULT_BASE_URL = ""
+BASE_URL = os.environ.get("BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
 # ---------------------------------------------------------------------------
@@ -548,11 +569,15 @@ def print_phase_table(phases: list[PhaseResult]) -> None:
 # Orchestration
 # ---------------------------------------------------------------------------
 async def async_main(args) -> int:
-    base_url = args.base or cm.GO_API
-    gateway = args.gateway or cm.GATEWAY
+    # Resolve the target: explicit CLI flag > per-service env > BASE_URL (prod default).
+    base_url = args.base or os.environ.get("GO_API") or BASE_URL
+    gateway = args.gateway or os.environ.get("GATEWAY") or BASE_URL
+    # Point the Prometheus reader at the same origin (nginx proxies /prometheus/).
+    cm.PROM_URL = os.environ.get("PROM_URL", f"{BASE_URL}/prometheus")
 
     cm.banner("URL Shortener — Performance Benchmark")
-    cm.info(f"target {base_url}  |  concurrency {args.concurrency}  |  {args.duration}s/scenario")
+    cm.info(f"target {base_url}  |  prometheus {cm.PROM_URL}")
+    cm.info(f"concurrency {args.concurrency}  |  {args.duration}s/scenario")
 
     probe = cm.ApiClient(base_url=base_url, gateway=gateway)
     if not probe.healthy():
@@ -668,8 +693,8 @@ async def async_main(args) -> int:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Performance & stress test for the URL shortener.")
-    p.add_argument("--base", default=None, help=f"Go API base URL (default {cm.GO_API})")
-    p.add_argument("--gateway", default=None, help=f"nginx gateway URL (default {cm.GATEWAY})")
+    p.add_argument("--base", default=None, help=f"API base URL (default BASE_URL={BASE_URL})")
+    p.add_argument("--gateway", default=None, help=f"nginx gateway URL (default BASE_URL={BASE_URL})")
     p.add_argument("--duration", type=float, default=10.0, help="seconds per scenario (default 10)")
     p.add_argument("--warmup", type=float, default=2.0, help="warmup seconds excluded from stats (default 2)")
     p.add_argument("--concurrency", type=int, default=50, help="parallel clients per scenario (default 50)")

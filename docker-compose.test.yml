@@ -1,0 +1,121 @@
+# Infra-only harness for LOCAL integration tests (levels L1 + L2).
+#
+# Brings up ONLY the backing stores — postgres, redis, kafka (+zookeeper),
+# clickhouse — reusing the exact same images and init scripts as production, with
+# host ports on 127.0.0.1. The application services (go-api, consumer, agent) are
+# NOT started here: integration tests run on the host and drive the real library
+# code (producer, consumer loop, writer, reader, cache) against these stores.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   make test-integration
+#   docker compose -f docker-compose.test.yml down -v
+#
+# Test credentials are hardcoded literals (testpass / testpass_ro), NOT ${VAR}
+# substitutions: Docker Compose auto-loads the repo's root .env, so a ${VAR:-default}
+# would silently pick up the developer's real secret and break the fixed creds the
+# integration harness relies on. A distinct project name (shortener-test) isolates
+# its network/volumes from the main stack; container names carry a -test suffix so
+# the two never collide.
+name: shortener-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: shortener-test-postgres
+    environment:
+      POSTGRES_DB: shortener
+      POSTGRES_USER: shortener
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortener -d shortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    container_name: shortener-test-redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.11
+    container_name: shortener-test-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.11
+    container_name: shortener-test-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: INTERNAL (kafka:9092) for clients inside the compose network
+      # — kafka-init's create-topics.sh hardcodes that address — and HOST
+      # (localhost:29092) so integration tests running on the host can reach the
+      # broker. The host listener uses 29092 to avoid clashing with a running prod
+      # stack on 9092.
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "127.0.0.1:29092:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  # NOTE: no kafka-init here. Integration tests create their own unique topics on
+  # demand (one per test, for isolation), so the topic-creation one-shot isn't
+  # needed — and leaving it out keeps `up --wait` from waiting on a container that
+  # runs to completion. The full-stack E2E uses the real docker-compose.yml, which
+  # does include kafka-init.
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.5.1-alpine
+    container_name: shortener-test-clickhouse
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: testpass
+      CLICKHOUSE_ANALYST_PASSWORD: testpass_ro
+    volumes:
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./clickhouse/analyst-user.xml:/etc/clickhouse-server/users.d/analyst-user.xml:ro
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok."]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
