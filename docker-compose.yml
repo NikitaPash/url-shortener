@@ -141,7 +141,7 @@ services:
       - "--web.external-url=${BASE_URL}/prometheus/"
       - "--web.route-prefix=/"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -189,7 +189,7 @@ services:
       clickhouse:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -251,7 +251,8 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health | grep -q ok"]
+      # python:3.12-slim ships neither wget nor curl, so probe with Python itself.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if 'ok' in urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3).read().decode() else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -268,7 +269,7 @@ services:
       go-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -296,7 +297,7 @@ services:
       prometheus:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q ok"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -318,7 +319,7 @@ services:
       - grafana
       - jaeger
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/nginx-health | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health | grep -q ok"]
       interval: 10s
       timeout: 5s
       retries: 5
