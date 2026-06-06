@@ -170,6 +170,12 @@ services:
       GEOIP_DB_PATH: data/GeoLite2-Country.mmdb
       JWT_SECRET: ${JWT_SECRET}
       BASE_URL: ${BASE_URL}
+      # Per-IP rate limits (requests/min). Defaults match internal/config; exposed as
+      # overridable env so a capacity load test can raise them (the generator reaches
+      # the API through nginx as a single IP). See loadtest/REMOTE-RUNBOOK.md.
+      RATE_LIMIT_REDIRECT: ${RATE_LIMIT_REDIRECT:-100}
+      RATE_LIMIT_API: ${RATE_LIMIT_API:-30}
+      RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10}
       # Seeded analytics admin — the only account allowed to use the AI agent.
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
