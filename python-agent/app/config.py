@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     query_timeout_seconds: int = 10
 
     jaeger_endpoint: str = "localhost:4318"
+    # Export spans to the OTLP collector (Jaeger). Disabled in tests so the batch
+    # exporter's worker thread isn't left retrying against an absent collector.
+    otel_enabled: bool = True
     metrics_port: int = 9093
 
 

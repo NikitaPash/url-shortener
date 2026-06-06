@@ -17,8 +17,8 @@ ps:
 	docker compose ps
 
 test:
-	cd backend/shortener && go test ./...
-	cd clickhouse-consumer && go test ./...
+	cd backend/shortener && go test ./... -v
+	cd clickhouse-consumer && go test ./... -v
 	cd python-agent && uv run pytest tests/ -v
 
 # Agent unit-test coverage: terminal report + browsable HTML in python-agent/htmlcov/

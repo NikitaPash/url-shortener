@@ -1,12 +1,20 @@
 """Shared test fixtures and configuration."""
+import os
 import time
 from unittest.mock import patch
 
-import jwt as pyjwt
-import pytest
-from fastapi.testclient import TestClient
+# app.main builds an OTLP BatchSpanProcessor at import time whose worker thread
+# retries span export against Jaeger forever. Tests have no collector, so disable
+# export BEFORE importing the app — otherwise the orphaned thread floods output
+# with ConnectionRefused and crashes on pytest's closed capture stream
+# ("I/O operation on closed file") at session end.
+os.environ.setdefault("OTEL_ENABLED", "false")
 
-from app.main import app
+import jwt as pyjwt  # noqa: E402
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.main import app  # noqa: E402
 
 JWT_SECRET = "test-secret-for-unit-tests"
 TEST_USER_ID = "user-test-uuid-001"
