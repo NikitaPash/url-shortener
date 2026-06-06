@@ -17,9 +17,11 @@ runcmd:
   - systemctl start docker
   - usermod -aG docker root
 
-  # Get the k6 scripts (loadtest/k6) + the results dir.
+  # Get the k6 scripts (loadtest/k6) + the results dir. The dir is world-writable
+  # so the non-root k6 container can write its JSON summaries into the bind mount.
   - git clone https://github.com/NikitaPash/url-shortener.git /opt/loadtest
   - mkdir -p /opt/loadtest/loadtest/results
+  - chmod 777 /opt/loadtest/loadtest/results
 
   # Pre-pull the k6 image so the first run starts instantly.
   - docker pull grafana/k6:latest
